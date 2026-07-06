@@ -1,0 +1,572 @@
+/**
+ * Airtable client + queries — uses native fetch (Node.js 18+).
+ * Replaces the airtable npm SDK which has silent failures on Node.js 22 / Vercel.
+ */
+
+import type {
+  Deal,
+  ProductionJob,
+  DJActiveJob,
+  Crew,
+  CrewHealth,
+  MonthlyGoal,
+  Person,
+  Contact,
+  Trade,
+  Zone,
+  ProductionStage,
+  DealStage,
+} from "./types";
+import { pmRecordIdByName } from "./auth";
+
+const BASE_ID = process.env.AIRTABLE_BASE_ID || "appHvFXShVSNjLCrG";
+
+// ─── Airtable REST API helpers ────────────────────────────────────────────────
+
+type AirtableRecord = { id: string; fields: Record<string, unknown> };
+
+/** Build query string, supporting repeated keys like fields[] */
+function buildParams(obj: Record<string, string | string[]>): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (Array.isArray(v)) {
+      for (const item of v) parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(item)}`);
+    } else {
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    }
+  }
+  return parts.join("&");
+}
+
+/** Fetch all records from a table, handling pagination automatically */
+async function fetchAll(
+  tableId: string,
+  options: {
+    filterByFormula?: string;
+    fields?: string[];
+    sort?: Array<{ field: string; direction?: "asc" | "desc" }>;
+    maxRecords?: number;
+  } = {}
+): Promise<AirtableRecord[]> {
+  const TOKEN = process.env.AIRTABLE_TOKEN;
+  if (!TOKEN) {
+    console.error("[airtable] AIRTABLE_TOKEN is not set — queries will return empty.");
+    return [];
+  }
+
+  const records: AirtableRecord[] = [];
+  let offset: string | undefined;
+
+  do {
+    const params: Record<string, string | string[]> = { pageSize: "100" };
+    if (options.filterByFormula) params.filterByFormula = options.filterByFormula;
+    if (options.fields?.length) params["fields[]"] = options.fields;
+    if (options.maxRecords) params.maxRecords = String(options.maxRecords);
+    if (offset) params.offset = offset;
+    if (options.sort) {
+      for (let i = 0; i < options.sort.length; i++) {
+        params[`sort[${i}][field]`] = options.sort[i].field;
+        if (options.sort[i].direction) params[`sort[${i}][direction]`] = options.sort[i].direction!;
+      }
+    }
+
+    const url = `https://api.airtable.com/v0/${BASE_ID}/${tableId}?${buildParams(params)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[airtable] ${res.status} fetching ${tableId}: ${text}`);
+      break;
+    }
+
+    const data = await res.json() as { records: AirtableRecord[]; offset?: string };
+    records.push(...data.records);
+    offset = data.offset;
+  } while (offset && records.length < (options.maxRecords ?? 10_000));
+
+  return records;
+}
+
+/** PATCH a single record */
+async function patchRecord(
+  tableId: string,
+  recordId: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  const TOKEN = process.env.AIRTABLE_TOKEN;
+  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${tableId}/${recordId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`[airtable] PATCH ${tableId}/${recordId} → ${res.status}: ${text}`);
+  }
+}
+
+/** POST to create records */
+async function createRecords(
+  tableId: string,
+  records: Array<{ fields: Record<string, unknown> }>
+): Promise<AirtableRecord[]> {
+  const TOKEN = process.env.AIRTABLE_TOKEN;
+  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${tableId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ records }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`[airtable] POST ${tableId} → ${res.status}: ${text}`);
+  }
+  const data = await res.json() as { records: AirtableRecord[] };
+  return data.records;
+}
+
+// ─── Field-value helpers (same signatures as before) ─────────────────────────
+
+function pickName(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value && "name" in value) {
+    return String((value as { name: unknown }).name);
+  }
+  return null;
+}
+
+function pickFirstLink(value: unknown): string | null {
+  if (Array.isArray(value) && value.length > 0) return String(value[0]);
+  return null;
+}
+
+function pickNumber(value: unknown): number | null {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const n = parseFloat(value);
+    return isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+function pickBoolean(value: unknown): boolean {
+  return value === true;
+}
+
+function pickString(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  return null;
+}
+
+function pickMultiSelect(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((v) => pickName(v)).filter((v): v is string => Boolean(v));
+  }
+  return [];
+}
+
+// ─── Table IDs ────────────────────────────────────────────────────────────────
+
+const TABLES = {
+  deals:              "tblUhWSbH6r1nAC1h",
+  production:         "tblsAq6MisZKzwqEG",
+  crews:              "tblv65HTsbzDYxBLB",
+  monthlyPerformance: "tbla1KWFdqizh7qjU",
+  people:             "tblOZSeJ7T8gVwn6C",
+  djJobs:             "tblYf9VDwY40hP0qE",
+  contacts:           "tblQ2uyUiZEqRjGKm",
+} as const;
+
+// ─── ZIP / address helpers ────────────────────────────────────────────────────
+
+function parseZipFromAddress(address: string): string {
+  const match = address.match(/\b(\d{5})\b/);
+  return match ? match[1] : "";
+}
+
+function parseCityFromAddress(address: string): string {
+  const parts = address.split(",").map((s) => s.trim());
+  if (parts.length >= 3) return parts[parts.length - 3];
+  return "";
+}
+
+// ─── Queries ─────────────────────────────────────────────────────────────────
+
+/** All deals in production-relevant stages (dashboard KPIs) */
+export async function getProductionDeals(): Promise<Deal[]> {
+  const records = await fetchAll(TABLES.deals, {
+    filterByFormula: `OR({Current Stage}='Project Pending Schedule',{Current Stage}='Project In Progress',{Current Stage}='RES Pending Payment')`,
+    maxRecords: 200,
+  });
+
+  return records.map((r) => ({
+    id: r.id,
+    name:          pickString(r.fields["Deal Name"]) || "(no name)",
+    stage:         (pickName(r.fields["Current Stage"]) as DealStage) || null,
+    address:       pickString(r.fields["Deal Address"]) || "",
+    city:          pickString(r.fields["Deal City"]) || "",
+    state:         pickString(r.fields["Deal State"]) || "",
+    zip:           pickString(r.fields["Deal Zip"]) || "",
+    projectType:   pickName(r.fields["Project Type"]),
+    pmId:          pickFirstLink(r.fields["PM"]),
+    value:         pickNumber(r.fields["Value: Deal"]),
+    budgetedHours: pickNumber(r.fields["Budgeted Hours"]),
+    contactId:     pickFirstLink(r.fields["Contact"]),
+    productionId:  pickFirstLink(r.fields["Production"]),
+  }));
+}
+
+/** Active DJ Jobs (DripJobs work orders with Stage = Scheduled or Pending) */
+export async function getDJActiveJobs(): Promise<DJActiveJob[]> {
+  const djRecords = await fetchAll(TABLES.djJobs, {
+    filterByFormula: `OR({Job Stage}="Scheduled",{Job Stage}="Pending")`,
+    maxRecords: 500,
+  });
+
+  // Collect linked Deal IDs
+  const dealIdSet = new Set<string>();
+  for (const r of djRecords) {
+    const links = r.fields["Deal"];
+    if (Array.isArray(links) && links.length > 0) dealIdSet.add(String(links[0]));
+  }
+  const dealIds = [...dealIdSet];
+
+  // Batch-fetch Deals for enrichment
+  const dealMap = new Map<string, AirtableRecord>();
+  const CHUNK = 80;
+  for (let i = 0; i < dealIds.length; i += CHUNK) {
+    const chunk = dealIds.slice(i, i + CHUNK);
+    const formula =
+      chunk.length === 1
+        ? `RECORD_ID()="${chunk[0]}"`
+        : `OR(${chunk.map((id) => `RECORD_ID()="${id}"`).join(",")})`;
+    const dealRecords = await fetchAll(TABLES.deals, {
+      filterByFormula: formula,
+      fields: ["Deal Name", "Deal Address", "Deal City", "Deal State", "Deal Zip", "Project Type", "Value: Deal"],
+      maxRecords: CHUNK,
+    });
+    for (const d of dealRecords) dealMap.set(d.id, d);
+  }
+
+  return djRecords.map((r) => {
+    const djAddress = pickString(r.fields["Address"]) || "";
+    const pmName    = pickString(r.fields["Project Manager"]);
+    const dealLinks = r.fields["Deal"];
+    const dealId    = Array.isArray(dealLinks) && dealLinks.length > 0 ? String(dealLinks[0]) : null;
+    const deal      = dealId ? dealMap.get(dealId) : null;
+    const address   = (deal ? pickString(deal.fields["Deal Address"]) : null) || djAddress;
+
+    return {
+      id:           r.id,
+      jobId:        pickString(r.fields["Job ID"]),
+      customer:     pickString(r.fields["Customer"]) || "(unknown)",
+      address,
+      zip:          (deal ? pickString(deal.fields["Deal Zip"]) : null) || parseZipFromAddress(djAddress),
+      city:         (deal ? pickString(deal.fields["Deal City"]) : null) || parseCityFromAddress(djAddress),
+      state:        (deal ? pickString(deal.fields["Deal State"]) : null) || "",
+      projectType:  deal ? pickName(deal.fields["Project Type"]) : null,
+      pmName,
+      pmId:         pmRecordIdByName(pmName),
+      revenue:      pickNumber(r.fields["Revenue"]),
+      estLaborHours:pickNumber(r.fields["Est Labor Hours"]),
+      djStage:      pickString(r.fields["Job Stage"]),
+      dealId,
+      scrapedAt:    pickString(r.fields["Scraped At"]),
+    };
+  });
+}
+
+/** Production jobs for a specific crew */
+export async function getJobsForCrew(crewName: string): Promise<ProductionJob[]> {
+  if (!crewName) return [];
+  // Filter by Crew field matching the crew name
+  const formula = `OR({Crew}="${crewName.replace(/"/g, '\\"')}", {Crew 2 (Split Job)}="${crewName.replace(/"/g, '\\"')}")`;
+  const records = await fetchAll(TABLES.production, {
+    filterByFormula: formula,
+    sort: [{ field: "Start Date", direction: "asc" }],
+    maxRecords: 500,
+  });
+
+  return records.map(mapProductionJob);
+}
+
+/** All production jobs */
+export async function getProductionJobs(): Promise<ProductionJob[]> {
+  const records = await fetchAll(TABLES.production, { maxRecords: 500 });
+
+  return records.map((r) => mapProductionJob(r));
+}
+
+/** Helper to map Airtable record to ProductionJob */
+function mapProductionJob(r: AirtableRecord): ProductionJob {
+  return {
+    id:                     r.id,
+    job:                    pickString(r.fields["Job"]) || "(no name)",
+    dealId:                 pickFirstLink(r.fields["Deal"]),
+    stage:                  (pickName(r.fields["Production Stage"]) as ProductionStage) || null,
+    pmId:                   pickFirstLink(r.fields["PM"]),
+    crew:                   pickString(r.fields["Crew"]),
+    crew2:                  pickString(r.fields["Crew 2 (Split Job)"]),
+    startDate:              pickString(r.fields["Start Date"]),
+    endDate:                pickString(r.fields["End Date"]),
+    customerConfirmedStart: pickBoolean(r.fields["Customer Confirmed Start"]),
+    crewConfirmed:          pickBoolean(r.fields["Crew Confirmed"]),
+    colorSelectionComplete: pickBoolean(r.fields["Color Selection Complete"]),
+    colorStatus:            (pickName(r.fields["Color Status"]) as ProductionJob["colorStatus"]) || null,
+    materialsOrdered:       pickBoolean(r.fields["Materials Ordered"]),
+    materialsReceived:      pickBoolean(r.fields["Materials Received"]),
+    materialStatus:         (pickName(r.fields["Material Status"]) as ProductionJob["materialStatus"]) || null,
+    specialMaterialsWarning:pickString(r.fields["Special Materials Warning"]),
+    siteWalkComplete:       pickBoolean(r.fields["Site Walk Complete"]),
+    companyCamUrl:          pickString(r.fields["CompanyCam Project URL"]),
+    companyCamProjectId:    pickString(r.fields["CompanyCam Project ID"]),
+    notes:                  pickString(r.fields["Notes"]),
+    scoreOnTime:            pickNumber(r.fields["Score: On-Time"]),
+    scoreCustomerSat:       pickNumber(r.fields["Score: Customer Satisfaction"]),
+    scoreCommunication:     pickNumber(r.fields["Score: Communication"]),
+    scoreAvg:               pickNumber(r.fields["Crew Score Avg"]),
+    scoreNotes:             pickString(r.fields["Score Notes"]),
+    scoreDate:              pickString(r.fields["Score Date"]),
+    reminder14daySent:      pickString(r.fields["Reminder 14-Day Sent"]),
+    reminder7daySent:       pickString(r.fields["Reminder 7-Day Sent"]),
+    reminder3daySent:       pickString(r.fields["Reminder 3-Day Sent"]),
+    reminder1daySent:       pickString(r.fields["Reminder 1-Day Sent"]),
+  };
+}
+
+/** Fetch customer contacts by record IDs */
+export async function getContactsByIds(ids: string[]): Promise<Contact[]> {
+  if (ids.length === 0) return [];
+  const unique = [...new Set(ids)];
+  const results: Contact[] = [];
+  const CHUNK = 80;
+
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const formula =
+      chunk.length === 1
+        ? `RECORD_ID()="${chunk[0]}"`
+        : `OR(${chunk.map((id) => `RECORD_ID()="${id}"`).join(",")})`;
+
+    const records = await fetchAll(TABLES.contacts, {
+      filterByFormula: formula,
+      fields: ["Contact Name", "Email", "Phone"],
+      maxRecords: CHUNK,
+    });
+    for (const r of records) {
+      results.push({
+        id:    r.id,
+        name:  pickString(r.fields["Contact Name"]),
+        email: pickString(r.fields["Email"]),
+        phone: pickString(r.fields["Phone"]),
+      });
+    }
+  }
+  return results;
+}
+
+/** Fetch Deal → Contact ID mapping for the Reminders page */
+export async function getDealContactIds(dealIds: string[]): Promise<Map<string, string>> {
+  if (dealIds.length === 0) return new Map();
+  const unique = [...new Set(dealIds)];
+  const result = new Map<string, string>();
+  const CHUNK = 80;
+
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const formula =
+      chunk.length === 1
+        ? `RECORD_ID()="${chunk[0]}"`
+        : `OR(${chunk.map((id) => `RECORD_ID()="${id}"`).join(",")})`;
+
+    const records = await fetchAll(TABLES.deals, {
+      filterByFormula: formula,
+      fields: ["Contact"],
+      maxRecords: CHUNK,
+    });
+    for (const r of records) {
+      const contactId = pickFirstLink(r.fields["Contact"]);
+      if (contactId) result.set(r.id, contactId);
+    }
+  }
+  return result;
+}
+
+/** All active crews */
+export async function getCrews(): Promise<Crew[]> {
+  const records = await fetchAll(TABLES.crews, {
+    filterByFormula: `{Active}=1`,
+    sort: [{ field: "Crew Name", direction: "asc" }],
+    maxRecords: 200,
+  });
+
+  return records.map((r) => ({
+    id:               r.id,
+    name:             pickString(r.fields["Crew Name"]) || "",
+    color:            pickName(r.fields["Color"]),
+    trades:           pickMultiSelect(r.fields["Trades"]) as Trade[],
+    coverageAreas:    pickMultiSelect(r.fields["Coverage Areas"]) as Zone[],
+    leadContactName:  pickString(r.fields["Lead Contact Name"]),
+    leadContactPhone: pickString(r.fields["Lead Contact Phone"]),
+    inHouse:          pickBoolean(r.fields["In-House"]),
+    active:           pickBoolean(r.fields["Active"]),
+  }));
+}
+
+/** Compute per-crew health stats (pure function — no API calls) */
+export function computeCrewHealth(jobs: ProductionJob[], deals: Deal[]): CrewHealth[] {
+  const dealMap = new Map(deals.map((d) => [d.id, d]));
+  const byCrewName = new Map<string, ProductionJob[]>();
+  for (const j of jobs) {
+    if (!j.crew) continue;
+    if (!byCrewName.has(j.crew)) byCrewName.set(j.crew, []);
+    byCrewName.get(j.crew)!.push(j);
+  }
+  const results: CrewHealth[] = [];
+  const activeStages: ProductionStage[] = ["Scheduled","Materials Needed","Ready to Start","In Progress","Needs Confirmation"];
+  const avg = (arr: (number | null)[]) => {
+    const vals = arr.filter((v): v is number => v != null);
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a, b) => a + b) / vals.length) * 10) / 10;
+  };
+
+  for (const [crewName, crewJobs] of byCrewName) {
+    const scoredJobs = crewJobs.filter((j) => j.scoreAvg != null);
+    const activeJobs = crewJobs.filter((j) => j.stage && activeStages.includes(j.stage));
+    let scheduledHours = 0;
+    for (const j of activeJobs) {
+      const deal = j.dealId ? dealMap.get(j.dealId) : null;
+      if (deal?.budgetedHours) scheduledHours += deal.budgetedHours;
+    }
+    results.push({
+      crewName, color: null,
+      totalJobs: crewJobs.length, scoredJobs: scoredJobs.length,
+      avgOnTime: avg(scoredJobs.map((j) => j.scoreOnTime)),
+      avgCustomerSat: avg(scoredJobs.map((j) => j.scoreCustomerSat)),
+      avgCommunication: avg(scoredJobs.map((j) => j.scoreCommunication)),
+      avgOverall: avg(scoredJobs.map((j) => j.scoreAvg)),
+      activeJobs: activeJobs.length, scheduledHours,
+    });
+  }
+  return results.sort((a, b) => b.activeJobs - a.activeJobs);
+}
+
+// ─── Write operations ─────────────────────────────────────────────────────────
+
+export async function updateCrewScore(
+  jobId: string,
+  scores: { scoreOnTime: number; scoreCustomerSat: number; scoreCommunication: number; scoreNotes?: string }
+): Promise<void> {
+  await patchRecord(TABLES.production, jobId, {
+    "Score: On-Time":             scores.scoreOnTime,
+    "Score: Customer Satisfaction": scores.scoreCustomerSat,
+    "Score: Communication":       scores.scoreCommunication,
+    "Score Notes":                scores.scoreNotes || "",
+    "Score Date":                 new Date().toISOString().split("T")[0],
+  });
+}
+
+export async function updateJobStage(jobId: string, stage: string): Promise<void> {
+  await patchRecord(TABLES.production, jobId, { "Production Stage": stage });
+}
+
+export type JobUpdatePayload = {
+  stage?: string | null; crew?: string | null; crew2?: string | null;
+  startDate?: string | null; endDate?: string | null;
+  customerConfirmedStart?: boolean; crewConfirmed?: boolean;
+  colorStatus?: string | null; materialStatus?: string | null;
+  specialMaterialsWarning?: string | null; companyCamUrl?: string | null; notes?: string | null;
+};
+
+export async function updateProductionJob(jobId: string, updates: JobUpdatePayload): Promise<void> {
+  const fields: Record<string, unknown> = {};
+  if ("stage" in updates)                   fields["Production Stage"]          = updates.stage ?? null;
+  if ("crew" in updates)                    fields["Crew"]                       = updates.crew ?? "";
+  if ("crew2" in updates)                   fields["Crew 2 (Split Job)"]         = updates.crew2 ?? "";
+  if ("startDate" in updates)               fields["Start Date"]                 = updates.startDate ?? null;
+  if ("endDate" in updates)                 fields["End Date"]                   = updates.endDate ?? null;
+  if ("customerConfirmedStart" in updates)  fields["Customer Confirmed Start"]   = updates.customerConfirmedStart;
+  if ("crewConfirmed" in updates)           fields["Crew Confirmed"]             = updates.crewConfirmed;
+  if ("colorStatus" in updates)             fields["Color Status"]               = updates.colorStatus ?? null;
+  if ("materialStatus" in updates)          fields["Material Status"]            = updates.materialStatus ?? null;
+  if ("specialMaterialsWarning" in updates) fields["Special Materials Warning"]  = updates.specialMaterialsWarning ?? "";
+  if ("companyCamUrl" in updates)           fields["CompanyCam Project URL"]     = updates.companyCamUrl ?? "";
+  if ("notes" in updates)                   fields["Notes"]                      = updates.notes ?? "";
+  if (Object.keys(fields).length === 0) return;
+  await patchRecord(TABLES.production, jobId, fields);
+}
+
+export async function createProductionJob(
+  customerName: string,
+  dealId: string | null,
+  updates: JobUpdatePayload
+): Promise<string> {
+  const fields: Record<string, unknown> = { "Job": customerName };
+  if (dealId) fields["Deal"] = [{ id: dealId }];
+  if (updates.stage)                    fields["Production Stage"]          = updates.stage;
+  if (updates.crew)                     fields["Crew"]                       = updates.crew;
+  if (updates.crew2)                    fields["Crew 2 (Split Job)"]         = updates.crew2;
+  if (updates.startDate)                fields["Start Date"]                 = updates.startDate;
+  if (updates.endDate)                  fields["End Date"]                   = updates.endDate;
+  if (updates.customerConfirmedStart != null) fields["Customer Confirmed Start"] = updates.customerConfirmedStart;
+  if (updates.crewConfirmed != null)    fields["Crew Confirmed"]             = updates.crewConfirmed;
+  if (updates.colorStatus)              fields["Color Status"]               = updates.colorStatus;
+  if (updates.materialStatus)           fields["Material Status"]            = updates.materialStatus;
+  if (updates.specialMaterialsWarning)  fields["Special Materials Warning"]  = updates.specialMaterialsWarning;
+  if (updates.companyCamUrl)            fields["CompanyCam Project URL"]     = updates.companyCamUrl;
+  if (updates.notes)                    fields["Notes"]                      = updates.notes;
+  const created = await createRecords(TABLES.production, [{ fields }]);
+  return created[0].id;
+}
+
+// ─── Monthly goals ────────────────────────────────────────────────────────────
+
+function mapGoal(r: AirtableRecord, fallbackMonth = 0, fallbackYear = 0): MonthlyGoal {
+  return {
+    id:               r.id,
+    period:           String(r.fields["Period"] || ""),
+    month:            pickName(r.fields["Month"]) || "",
+    monthNumber:      pickNumber(r.fields["Month #"]) || fallbackMonth,
+    year:             pickNumber(r.fields["Year"]) || fallbackYear,
+    productionGoal:   pickNumber(r.fields["Monthly Production Goal"]),
+    revenueGoal:      pickNumber(r.fields["Monthly Revenue Goal"]),
+    salesGoal:        pickNumber(r.fields["Monthly Sales Goal"]),
+    jobsProducedGoal: pickNumber(r.fields["Jobs Produced Goal"]),
+    avgJobSizeGoal:   pickNumber(r.fields["Average Job Size Goal"]),
+    laborBudget:      pickNumber(r.fields["Labor Cost Budget"]),
+    materialBudget:   pickNumber(r.fields["Material Cost Budget"]),
+    actualProduction: pickNumber(r.fields["Actual Production"]),
+    actualRevenue:    pickNumber(r.fields["Actual Revenue"]),
+  };
+}
+
+export async function getMonthlyGoal(year: number, month: number): Promise<MonthlyGoal | null> {
+  const records = await fetchAll(TABLES.monthlyPerformance, {
+    filterByFormula: `AND({Year}=${year},{Month #}=${month})`,
+    maxRecords: 1,
+  });
+  return records[0] ? mapGoal(records[0], month, year) : null;
+}
+
+export async function getMonthlyGoals(year: number): Promise<MonthlyGoal[]> {
+  const records = await fetchAll(TABLES.monthlyPerformance, {
+    filterByFormula: `{Year}=${year}`,
+    sort: [{ field: "Month #", direction: "asc" }],
+  });
+  return records.map((r) => mapGoal(r, 0, year));
+}
+
+export async function getPeople(): Promise<Person[]> {
+  const records = await fetchAll(TABLES.people, { maxRecords: 100 });
+  return records.map((r) => ({
+    id:    r.id,
+    name:  pickString(r.fields["Name"]) || "(unknown)",
+    role:  pickName(r.fields["Role"]),
+    email: pickString(r.fields["Email"]),
+  }));
+}

@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply bg-provision-gray text-provision-charcoal;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-lg shadow-card p-4;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-md bg-provision-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-provision-orange-dark transition;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-md bg-white border border-provision-gray-mid px-4 py-2 text-sm font-medium text-provision-charcoal hover:bg-provision-gray transition;
+  }
+  .pill {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+}
