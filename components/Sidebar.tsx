@@ -68,9 +68,11 @@ export function Sidebar() {
   const user = session?.user;
   const email = user?.email ?? "";
 
+  // Full nav for coordinators, managers, and the owner
   const isCoordinator =
     email === "miriam@provisionpaints.com" ||
-    email === "jacob@provisionpaints.com";
+    email === "jacob@provisionpaints.com"  ||
+    email === "brandon@provisionpaints.com";
   const nav = isCoordinator ? NAV_ALL : NAV_PM;
 
   function isActive(item: NavItem) {
