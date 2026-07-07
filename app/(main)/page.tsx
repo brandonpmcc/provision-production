@@ -184,11 +184,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
+      {/* Page header — website-style bold display heading */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-provision-charcoal-dark">Dashboard</h1>
-          <p className="text-sm text-provision-gray-text">
+          <div className="section-label mb-0.5">Pro-Vision Painting</div>
+          <h1 className="page-header">Production Dashboard</h1>
+          <p className="text-sm text-provision-gray-text mt-0.5">
             {now.toLocaleDateString("en-US", {
               weekday: "long",
               month: "long",
@@ -203,8 +204,8 @@ export default async function DashboardPage() {
       {isManager && (
         <section className="rounded-xl border border-provision-orange/30 bg-gradient-to-r from-provision-orange-light to-white p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <BarChart2 className="w-4 h-4 text-provision-orange-dark" />
-            <h2 className="font-semibold text-provision-charcoal-dark text-sm tracking-wide uppercase">
+            <BarChart2 className="w-4 h-4 text-provision-orange" />
+            <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide">
               Manager View
             </h2>
             {highCount > 0 && (
@@ -332,39 +333,39 @@ export default async function DashboardPage() {
           label="Pipeline value"
           value={money(totalPipelineValue)}
           sublabel={`${deals.length} active deals`}
+          accent="orange"
         />
         <Kpi
           icon={TrendingUp}
-          label="Monthly production goal"
+          label="Monthly goal"
           value={money(monthGoal?.productionGoal)}
-          sublabel={
-            weeklyTarget
-              ? `~${money(weeklyTarget)} / week target`
-              : "no goal set for this month"
-          }
+          sublabel={weeklyTarget ? `~${money(weeklyTarget)} / week` : "no goal set"}
+          accent="teal"
         />
         <Kpi
           icon={DollarSign}
           label="In progress"
           value={`${inProgressDeals}`}
           sublabel={`${pendingScheduleDeals} awaiting schedule`}
+          accent="orange"
         />
         <Kpi
           icon={Users}
           label="Active crews"
           value={`${crews.length}`}
           sublabel={`${crews.filter((c) => c.inHouse).length} in-house`}
+          accent="teal"
         />
       </div>
 
       {/* ── Forecast strip ────────────────────────────────────────────── */}
-      <section className="card">
+      <section className="card teal-top border-t-4 border-provision-teal">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-provision-charcoal-dark">
-            {year} production forecast
+          <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide">
+            {year} Production Forecast
           </h2>
           <span className="text-xs text-provision-gray-text">
-            Source: GBC Monthly Performance
+            GBC Monthly Performance
           </span>
         </div>
         <div className="grid grid-cols-12 gap-2">
@@ -399,9 +400,9 @@ export default async function DashboardPage() {
 
       {/* ── Quick lists ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4">
-        <section className="card">
-          <h2 className="font-semibold text-provision-charcoal-dark mb-3">
-            Pending Schedule ({pendingScheduleDeals})
+        <section className="card teal-top border-t-4 border-provision-orange">
+          <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-3">
+            Pending Schedule <span className="text-provision-orange">({pendingScheduleDeals})</span>
           </h2>
           <div className="space-y-2">
             {deals
@@ -422,9 +423,9 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        <section className="card">
-          <h2 className="font-semibold text-provision-charcoal-dark mb-3">
-            In Progress ({inProgressDeals})
+        <section className="card teal-top border-t-4 border-provision-teal">
+          <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-3">
+            In Progress <span className="text-provision-teal">({inProgressDeals})</span>
           </h2>
           <div className="space-y-2">
             {deals
@@ -464,25 +465,30 @@ function Kpi({
   label,
   value,
   sublabel,
+  accent = "orange",
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   sublabel: string;
+  accent?: "orange" | "teal";
 }) {
+  const isOrange = accent === "orange";
   return (
-    <div className="card">
+    <div className={`card teal-top border-t-4 ${isOrange ? "border-provision-orange" : "border-provision-teal"}`}>
       <div className="flex items-start justify-between">
-        <div>
-          <div className="text-xs text-provision-gray-text uppercase tracking-wide">
+        <div className="min-w-0 flex-1">
+          <div className="section-label mb-1" style={{ color: isOrange ? "#D14124" : "#05C3DE" }}>
             {label}
           </div>
-          <div className="text-2xl font-semibold text-provision-charcoal-dark mt-1">
+          <div className="font-display font-black text-2xl text-provision-navy mt-0.5 leading-none">
             {value}
           </div>
-          <div className="text-xs text-provision-gray-text mt-0.5">{sublabel}</div>
+          <div className="text-xs text-provision-gray-text mt-1.5">{sublabel}</div>
         </div>
-        <div className="w-10 h-10 rounded-md bg-provision-orange-light text-provision-orange-dark flex items-center justify-center">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ml-3 ${
+          isOrange ? "bg-provision-orange-light text-provision-orange" : "bg-provision-teal-light text-provision-teal"
+        }`}>
           <Icon className="w-5 h-5" />
         </div>
       </div>

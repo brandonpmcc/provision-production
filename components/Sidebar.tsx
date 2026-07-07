@@ -12,7 +12,6 @@ import {
   Users,
   Settings,
   LogOut,
-  ChevronRight,
   type LucideIcon,
 } from "lucide-react";
 
@@ -62,31 +61,35 @@ export function Sidebar() {
   return (
     <aside className="w-56 bg-provision-charcoal text-white flex-shrink-0 flex flex-col select-none">
 
-      {/* ── Brand header ─────────────────────────── */}
-      <div className="px-4 pt-5 pb-4 border-b border-white/[0.08]">
+      {/* ── Teal accent top bar — matches website's teal accent ─── */}
+      <div className="h-1 bg-provision-teal flex-shrink-0" />
+
+      {/* ── Brand header ────────────────────────────────────────── */}
+      <div className="px-4 pt-4 pb-3.5 border-b border-white/[0.07]">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
+          {/* Logo icon with dark bg */}
+          <div className="w-10 h-10 rounded-lg bg-provision-navy flex items-center justify-center flex-shrink-0 overflow-hidden">
             <Image
               src="/pvp-icon.svg"
-              alt="ProVision"
-              width={36}
-              height={36}
+              alt="Pro-Vision"
+              width={34}
+              height={34}
               className="object-contain"
               unoptimized
             />
           </div>
           <div className="min-w-0">
-            <div className="font-bold text-[13px] leading-tight text-white tracking-wide">
+            <div className="font-display font-black text-[15px] leading-tight text-white uppercase tracking-wide">
               Pro-Vision
             </div>
-            <div className="text-[10px] text-white/40 leading-tight uppercase tracking-widest font-medium">
+            <div className="text-[10px] text-provision-teal leading-tight uppercase tracking-widest font-semibold">
               Production
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── Navigation ───────────────────────────── */}
+      {/* ── Navigation ──────────────────────────────────────────── */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
         {nav.map((item) => {
           const { href, label, icon: Icon } = item;
@@ -96,50 +99,51 @@ export function Sidebar() {
               key={href}
               href={href}
               className={`
-                group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-100
+                group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all duration-100
                 ${active
-                  ? "bg-white/10 text-white"
-                  : "text-white/55 hover:text-white hover:bg-white/[0.06]"
+                  ? "bg-white/[0.08] text-white"
+                  : "text-white/50 hover:text-white hover:bg-white/[0.05]"
                 }
               `}
             >
-              <Icon
-                className={`w-[18px] h-[18px] flex-shrink-0 transition-colors ${
-                  active ? "text-provision-orange" : "text-white/40 group-hover:text-white/70"
-                }`}
-                strokeWidth={active ? 2.2 : 1.8}
-              />
-              <span className="flex-1 truncate">{label}</span>
+              {/* Active indicator — orange left bar (like website's active state) */}
               {active && (
-                <ChevronRight className="w-3 h-3 text-white/25 flex-shrink-0" />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-provision-orange rounded-r-full" />
               )}
+              <Icon
+                className={`w-4 h-4 flex-shrink-0 ml-0.5 transition-colors ${
+                  active ? "text-provision-orange" : "text-white/35 group-hover:text-white/60"
+                }`}
+                strokeWidth={active ? 2.5 : 2}
+              />
+              <span className="flex-1 truncate uppercase tracking-wide text-[11px]">{label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* ── User footer ──────────────────────────── */}
-      <div className="px-3 py-3 border-t border-white/[0.08] space-y-0.5">
+      {/* ── User footer ─────────────────────────────────────────── */}
+      <div className="px-3 py-3 border-t border-white/[0.07]">
         {user && (
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg mb-1">
             {user.image ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={user.image}
                 alt={user.name || "User"}
-                className="w-7 h-7 rounded-full ring-1 ring-white/20 flex-shrink-0"
+                className="w-7 h-7 rounded-full ring-1 ring-provision-teal/40 flex-shrink-0"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-provision-orange flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">
+              <div className="w-7 h-7 rounded-full bg-provision-orange flex items-center justify-center text-[10px] font-black text-white flex-shrink-0 uppercase">
                 {initials(user.name)}
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-semibold text-white/90 truncate leading-tight">
+              <div className="text-[12px] font-bold text-white/90 truncate leading-tight uppercase tracking-wide">
                 {user.name?.split(" ")[0] || user.email?.split("@")[0]}
               </div>
-              <div className="text-[10px] text-white/35 truncate leading-tight">
+              <div className="text-[10px] text-white/30 truncate leading-tight">
                 {user.email}
               </div>
             </div>
@@ -147,7 +151,7 @@ export function Sidebar() {
         )}
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-white/35 hover:text-white/70 hover:bg-white/[0.06] transition text-xs"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/[0.05] transition text-[11px] font-semibold uppercase tracking-wide"
         >
           <LogOut className="w-3.5 h-3.5" />
           <span>Sign out</span>
