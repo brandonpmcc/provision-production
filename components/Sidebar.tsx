@@ -17,6 +17,7 @@ import {
   Package,
   Bell,
   Settings,
+  HardHat,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
@@ -40,7 +41,7 @@ const NAV_ALL: NavItem[] = [
   { href: "/territories",      label: "Territories",    icon: Globe,         matchPrefix: "/territories",      group: "Jobs" },
   // Team
   { href: "/team",             label: "Team",           icon: Users,         matchPrefix: "/team",             group: "Team" },
-  { href: "/crews",            label: "Crew Health",    icon: Star,          matchPrefix: "/crews",            group: "Team" },
+  { href: "/crews",            label: "Crew Portal",    icon: HardHat,       matchPrefix: "/crews",            group: "Team" },
   { href: "/capacity",         label: "Capacity",       icon: BarChart2,     matchPrefix: "/capacity",         group: "Team" },
   // Operations
   { href: "/materials",        label: "Materials",      icon: Package,       matchPrefix: "/materials",        group: "Ops" },
