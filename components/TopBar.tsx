@@ -1,69 +1,52 @@
 import { getServerSession } from "next-auth";
-import { authOptions, roleFor } from "@/lib/auth";
+import { authOptions } from "@/lib/auth";
 import { Search, Bell } from "lucide-react";
-
-function initials(name: string | null | undefined): string {
-  if (!name) return "?";
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-const ROLE_LABEL: Record<string, string> = {
-  coordinator: "Production Coordinator",
-  manager: "Production Manager",
-  pm: "Project Manager",
-};
 
 export async function TopBar() {
   const session = await getServerSession(authOptions);
   const user = session?.user;
-  const role = roleFor(user?.email);
-  const roleLabel = ROLE_LABEL[role] || "";
-  const userInitials = initials(user?.name);
 
   return (
-    <header className="h-14 bg-white border-b border-provision-gray-mid flex items-center justify-between px-6 flex-shrink-0">
-      <div className="flex items-center gap-3">
-        <Search className="w-4 h-4 text-provision-gray-text" />
+    <header className="h-13 bg-white border-b border-provision-gray-mid flex items-center justify-between px-5 flex-shrink-0" style={{ height: "52px" }}>
+      {/* Search */}
+      <div className="flex items-center gap-2 bg-provision-gray rounded-lg px-3 py-1.5 w-72">
+        <Search className="w-3.5 h-3.5 text-provision-gray-muted flex-shrink-0" />
         <input
           type="search"
-          placeholder="Search jobs, customers, addresses…"
-          className="bg-transparent text-sm outline-none w-80"
+          placeholder="Search jobs, customers…"
+          className="bg-transparent text-sm outline-none w-full placeholder:text-provision-gray-muted"
         />
       </div>
-      <div className="flex items-center gap-3">
-        <button className="p-2 rounded-md hover:bg-provision-gray transition relative">
-          <Bell className="w-4 h-4 text-provision-charcoal" />
+
+      {/* Right side */}
+      <div className="flex items-center gap-2">
+        <button className="p-2 rounded-lg hover:bg-provision-gray transition relative">
+          <Bell className="w-4 h-4 text-provision-gray-text" />
         </button>
+
         {user && (
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 pl-2 border-l border-provision-gray-mid">
             {user.image ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={user.image}
                 alt={user.name || "User"}
-                className="w-8 h-8 rounded-full"
+                className="w-7 h-7 rounded-full ring-1 ring-provision-gray-mid"
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-8 h-8 rounded-full bg-provision-orange-light text-provision-orange-dark flex items-center justify-center text-xs font-semibold">
-                {userInitials}
+              <div className="w-7 h-7 rounded-full bg-provision-orange flex items-center justify-center text-[10px] font-bold text-white">
+                {(user.name ?? "?")
+                  .split(" ")
+                  .map((n: string) => n[0])
+                  .join("")
+                  .toUpperCase()
+                  .slice(0, 2)}
               </div>
             )}
-            <div className="hidden sm:block">
-              <div className="text-xs font-semibold text-provision-charcoal-dark leading-tight">
-                {user.name?.split(" ")[0] || user.email}
-              </div>
-              {roleLabel && (
-                <div className="text-[10px] text-provision-gray-text leading-tight">
-                  {roleLabel}
-                </div>
-              )}
-            </div>
+            <span className="text-xs font-semibold text-provision-charcoal hidden sm:block">
+              {user.name?.split(" ")[0] || user.email?.split("@")[0]}
+            </span>
           </div>
         )}
       </div>

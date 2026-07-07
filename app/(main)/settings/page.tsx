@@ -1,34 +1,245 @@
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+import Link from "next/link";
+import { getProductionJobs, getDJActiveJobs } from "@/lib/airtable";
+import type { ProductionStage } from "@/lib/types";
+import {
+  CheckCircle2, XCircle, Package, Bell, AlertTriangle, Settings2,
+  ExternalLink, Clock,
+} from "lucide-react";
+
+const ACTIVE_STAGES: ProductionStage[] = [
+  "Scheduled", "Materials Needed", "Ready to Start", "In Progress",
+  "Needs Confirmation", "Final Walkthrough",
+];
+
+function daysUntil(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  return Math.floor((new Date(dateStr).getTime() - Date.now()) / 86_400_000);
+}
+
+function money(n: number | null | undefined) {
+  if (!n) return "—";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+// ─── Sub-sections ─────────────────────────────────────────────────────────
+
+function IntegrationStatus() {
   const env = {
-    "Airtable token": !!process.env.AIRTABLE_TOKEN,
-    "CompanyCam token": !!process.env.COMPANYCAM_TOKEN,
-    "Google OAuth": !!process.env.GOOGLE_CLIENT_ID,
+    "Airtable API":    !!process.env.AIRTABLE_TOKEN,
+    "CompanyCam API":  !!process.env.COMPANYCAM_TOKEN,
+    "Google OAuth":    !!process.env.GOOGLE_CLIENT_ID,
+    "NextAuth Secret": !!process.env.NEXTAUTH_SECRET,
   };
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-provision-charcoal-dark">Settings</h1>
-        <p className="text-sm text-provision-gray-text">Integrations & configuration</p>
+    <div className="card space-y-3">
+      <div className="flex items-center gap-2 mb-1">
+        <Settings2 className="w-4 h-4 text-provision-gray-text" />
+        <h2 className="font-semibold text-provision-navy text-sm">Integration Status</h2>
       </div>
-      <section className="card">
-        <h2 className="font-semibold text-provision-charcoal-dark mb-3">Integration status</h2>
-        <div className="space-y-2">
-          {Object.entries(env).map(([k, ok]) => (
-            <div key={k} className="flex items-center justify-between text-sm">
-              <div>{k}</div>
-              <span
-                className={`pill ${
-                  ok
-                    ? "bg-green-100 text-green-800"
-                    : "bg-red-100 text-red-800"
-                }`}
-              >
-                {ok ? "Connected" : "Missing"}
+      <div className="divide-y divide-provision-gray-mid">
+        {Object.entries(env).map(([k, ok]) => (
+          <div key={k} className="flex items-center justify-between py-2.5 text-sm">
+            <span className="text-provision-charcoal">{k}</span>
+            <span className={`flex items-center gap-1 text-xs font-semibold ${ok ? "text-green-600" : "text-red-500"}`}>
+              {ok
+                ? <><CheckCircle2 className="w-3.5 h-3.5" /> Connected</>
+                : <><XCircle className="w-3.5 h-3.5" /> Missing</>
+              }
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: { section?: string };
+}) {
+  const section = searchParams?.section ?? "integrations";
+
+  // Load materials data
+  const [prodJobs, djJobs] = await Promise.all([
+    getProductionJobs().catch(() => []),
+    getDJActiveJobs().catch(() => []),
+  ]);
+
+  const activeJobs = prodJobs.filter(j => ACTIVE_STAGES.includes(j.stage as ProductionStage));
+
+  const urgent = activeJobs
+    .filter(j => {
+      const d = daysUntil(j.startDate);
+      return d != null && d <= 7 && d >= -1 && j.materialStatus !== "Received";
+    })
+    .sort((a, b) => (daysUntil(a.startDate) ?? 99) - (daysUntil(b.startDate) ?? 99));
+
+  const warnings = activeJobs.filter(j => j.specialMaterialsWarning);
+
+  const buckets = {
+    "Not Ordered": activeJobs.filter(j => !j.materialStatus || j.materialStatus === "Not Ordered"),
+    "Ordered":     activeJobs.filter(j => j.materialStatus === "Ordered"),
+    "Received":    activeJobs.filter(j => j.materialStatus === "Received"),
+    "Backordered": activeJobs.filter(j => j.materialStatus === "Backordered"),
+  };
+
+  const tabs = [
+    { id: "integrations", label: "Integrations", icon: <Settings2 className="w-4 h-4" /> },
+    { id: "materials",    label: "Materials",     icon: <Package className="w-4 h-4" />, badge: urgent.length || undefined },
+    { id: "reminders",    label: "Reminders",     icon: <Bell className="w-4 h-4" /> },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h1 className="page-header">Settings</h1>
+        <p className="text-sm text-provision-gray-text mt-0.5">Integrations, materials &amp; reminders</p>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-provision-gray rounded-xl p-1 w-fit">
+        {tabs.map(({ id, label, icon, badge }) => (
+          <Link
+            key={id}
+            href={`/settings?section=${id}`}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all relative ${
+              section === id
+                ? "bg-white text-provision-charcoal shadow-card"
+                : "text-provision-gray-text hover:text-provision-charcoal"
+            }`}
+          >
+            {icon}
+            {label}
+            {badge != null && badge > 0 && (
+              <span className="ml-0.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                {badge}
               </span>
+            )}
+          </Link>
+        ))}
+      </div>
+
+      {/* ── Integrations ────────────────────────────────────────────── */}
+      {section === "integrations" && (
+        <div className="max-w-lg">
+          <IntegrationStatus />
+          <div className="card mt-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <ExternalLink className="w-4 h-4 text-provision-gray-text" />
+              <h2 className="font-semibold text-provision-navy text-sm">Quick Links</h2>
             </div>
-          ))}
+            {[
+              { label: "Airtable Base",    href: "https://airtable.com" },
+              { label: "CompanyCam",       href: "https://companycam.com" },
+              { label: "Vercel Dashboard", href: "https://vercel.com/dashboard" },
+            ].map(({ label, href }) => (
+              <a key={label} href={href} target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-between py-2 text-sm text-provision-charcoal hover:text-provision-orange transition group">
+                <span>{label}</span>
+                <ExternalLink className="w-3.5 h-3.5 text-provision-gray-muted group-hover:text-provision-orange transition" />
+              </a>
+            ))}
+          </div>
         </div>
-      </section>
+      )}
+
+      {/* ── Materials ────────────────────────────────────────────────── */}
+      {section === "materials" && (
+        <div className="space-y-5">
+          {/* Status buckets */}
+          <div className="grid grid-cols-4 gap-4">
+            {Object.entries(buckets).map(([status, list]) => {
+              const color =
+                status === "Backordered" ? "text-red-600 bg-red-50" :
+                status === "Not Ordered" ? "text-orange-600 bg-orange-50" :
+                status === "Ordered"     ? "text-blue-600 bg-blue-50" :
+                "text-green-600 bg-green-50";
+              return (
+                <div key={status} className="card text-center">
+                  <div className={`text-2xl font-bold mb-0.5 ${color.split(" ")[0]}`}>{list.length}</div>
+                  <div className="text-xs text-provision-gray-text">{status}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Urgent: starting soon */}
+          {urgent.length > 0 && (
+            <div className="card border-l-4 border-red-500">
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="w-4 h-4 text-red-500" />
+                <h3 className="font-semibold text-provision-navy text-sm">Starting soon — materials not received</h3>
+              </div>
+              <div className="space-y-2">
+                {urgent.map(j => {
+                  const d = daysUntil(j.startDate);
+                  return (
+                    <div key={j.id} className="flex items-center justify-between py-2 border-b border-provision-gray-mid last:border-0 text-sm">
+                      <div>
+                        <div className="font-medium text-provision-navy">{j.job}</div>
+                        <div className="text-xs text-provision-gray-text">{j.crew || "No crew"} · {j.materialStatus || "Not Ordered"}</div>
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-4">
+                        <span className={`text-xs font-semibold ${d != null && d <= 2 ? "text-red-600" : "text-orange-600"}`}>
+                          {d === 0 ? "Today" : d === 1 ? "Tomorrow" : d != null && d < 0 ? "Overdue" : `${d}d`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Special warnings */}
+          {warnings.length > 0 && (
+            <div className="card">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                <h3 className="font-semibold text-provision-navy text-sm">Special material warnings</h3>
+              </div>
+              <div className="space-y-2">
+                {warnings.map(j => (
+                  <div key={j.id} className="flex items-start gap-2 py-2 border-b border-provision-gray-mid last:border-0 text-sm">
+                    <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium text-provision-navy">{j.job}</div>
+                      <div className="text-xs text-provision-gray-text">{j.specialMaterialsWarning}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {urgent.length === 0 && warnings.length === 0 && (
+            <div className="card text-center py-8 text-provision-gray-text text-sm">
+              <Package className="w-8 h-8 mx-auto mb-2 text-provision-gray-muted" />
+              No urgent material issues
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Reminders ────────────────────────────────────────────────── */}
+      {section === "reminders" && (
+        <div className="card text-center py-10">
+          <Bell className="w-10 h-10 mx-auto mb-3 text-provision-gray-muted" />
+          <div className="font-semibold text-provision-navy">Reminders</div>
+          <p className="text-sm text-provision-gray-text mt-1 max-w-xs mx-auto">
+            Customer confirmation and start-date reminder workflows.
+          </p>
+          <Link href="/reminders" className="btn-primary mt-4 inline-flex">
+            Open Full Reminders Page
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

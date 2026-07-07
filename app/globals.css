@@ -6,20 +6,35 @@
   html, body {
     @apply bg-provision-gray text-provision-charcoal;
     font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-white rounded-lg shadow-card p-4;
+    @apply bg-white rounded-xl shadow-card border border-provision-gray-mid/60 p-4;
+  }
+  .card-hover {
+    @apply hover:shadow-card-hover hover:-translate-y-px transition-all duration-150;
   }
   .btn-primary {
-    @apply inline-flex items-center gap-2 rounded-md bg-provision-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-provision-orange-dark transition;
+    @apply inline-flex items-center gap-2 rounded-lg bg-provision-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-provision-orange-dark active:scale-95 transition-all;
   }
   .btn-secondary {
-    @apply inline-flex items-center gap-2 rounded-md bg-white border border-provision-gray-mid px-4 py-2 text-sm font-medium text-provision-charcoal hover:bg-provision-gray transition;
+    @apply inline-flex items-center gap-2 rounded-lg bg-white border border-provision-gray-mid px-4 py-2 text-sm font-medium text-provision-charcoal hover:bg-provision-gray active:scale-95 transition-all;
   }
   .pill {
     @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .page-header {
+    @apply text-xl font-bold text-provision-navy tracking-tight;
+  }
+  .section-label {
+    @apply text-xs font-semibold text-provision-gray-muted uppercase tracking-wider;
   }
 }
