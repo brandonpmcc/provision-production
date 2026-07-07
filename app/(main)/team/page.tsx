@@ -1,9 +1,10 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { getCrews, getProductionJobs, getDJActiveJobs, getPmStats } from "@/lib/airtable";
+import { getCrews, getProductionJobs, getDJActiveJobs, getPmStats, getActivePipelineJobs } from "@/lib/airtable";
 import type { CrewHealth, ProductionStage } from "@/lib/types";
 import { CrewCard } from "@/components/CrewCard";
+import { PMJobsPanel } from "./PMJobsPanel";
 import { Star, Briefcase, Clock, Users, BarChart2, ChevronRight } from "lucide-react";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -146,7 +147,10 @@ async function CrewsTab() {
 // ─── PM Workload tab ────────────────────────────────────────────────────────
 
 async function PMTab() {
-  const pmStats = await getPmStats().catch(() => []);
+  const [pmStats, allJobs] = await Promise.all([
+    getPmStats().catch(() => []),
+    getActivePipelineJobs().catch(() => []),
+  ]);
 
   const totalActiveJobs = pmStats.reduce((s, p) => s + p.activeJobs, 0);
   const totalRevenue    = pmStats.reduce((s, p) => s + p.totalRevenue, 0);
@@ -225,6 +229,9 @@ async function PMTab() {
                   {pm.pendingScheduleJobs > 0      && <div className="flex justify-between text-xs"><span className="text-provision-gray-text">Pending</span><span className="font-medium text-provision-orange">{pm.pendingScheduleJobs}</span></div>}
                 </div>
               )}
+
+              {/* Expandable job list */}
+              <PMJobsPanel pmName={pm.pmName} jobs={allJobs} />
             </div>
           );
         })}

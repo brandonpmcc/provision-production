@@ -39,7 +39,7 @@ const ACTIVE_STAGES = new Set(["Needs Confirmation","Scheduled","Materials Neede
 
 // ─── Job card ──────────────────────────────────────────────────────────────────
 
-function JobCard({ job, token }: { job: ProductionJob; token: string }) {
+function JobCard({ job, token, crewName }: { job: ProductionJob; token: string; crewName: string }) {
   const [expanded, setExpanded]     = useState(false);
   const [accepting, setAccepting]   = useState(false);
   const [accepted, setAccepted]     = useState(job.crewConfirmed);
@@ -179,6 +179,16 @@ function JobCard({ job, token }: { job: ProductionJob; token: string }) {
             </div>
           )}
 
+          {/* Download Job Sheet button */}
+          <a
+            href={`/api/production/acceptance-pdf?name=${encodeURIComponent(job.job)}&crew=${encodeURIComponent(crewName)}&startDate=${encodeURIComponent(job.startDate || '')}&endDate=${encodeURIComponent(job.endDate || '')}&notes=${encodeURIComponent(job.notes || '')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold uppercase tracking-wide bg-provision-navy/10 text-white/70 border border-white/20 hover:bg-provision-navy/30 transition-all mt-2"
+          >
+            📄 Download Job Sheet
+          </a>
+
           {completed && (
             <div className="flex items-center gap-2 text-sm text-green-600 font-semibold justify-center py-2">
               <CheckCircle2 className="w-4 h-4" />
@@ -261,7 +271,7 @@ export function CrewPortalClient({
               Your Jobs ({activeJobs.length})
             </div>
             {activeJobs.map(job => (
-              <JobCard key={job.id} job={job} token={token} />
+              <JobCard key={job.id} job={job} token={token} crewName={crewName} />
             ))}
           </div>
         )}
