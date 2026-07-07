@@ -251,7 +251,7 @@ export async function getDJActiveJobs(): Promise<DJActiveJob[]> {
         : `OR(${chunk.map((id) => `RECORD_ID()="${id}"`).join(",")})`;
     const dealRecords = await fetchAll(TABLES.deals, {
       filterByFormula: formula,
-      fields: ["Deal Name", "Deal Address", "Deal City", "Deal State", "Deal Zip", "Project Type", "Value: Deal"],
+      fields: ["Deal Name", "Deal Address", "Deal City", "Deal State", "Deal Zip", "Project Type", "Value: Deal", "Current Stage"],
       maxRecords: CHUNK,
     });
     for (const d of dealRecords) dealMap.set(d.id, d);
@@ -317,6 +317,7 @@ export async function getDJActiveJobs(): Promise<DJActiveJob[]> {
       estLaborCost:   pickNumber(r.fields["Est Labor Cost"]),
       estMaterials:   pickNumber(r.fields["Est Materials"]),
       djStage:        pickString(r.fields["Job Stage"]),
+      dealStage:      deal ? (pickName(deal.fields["Current Stage"]) ?? null) : null,
       dealId,
       customerId:     customerId || null,
       scrapedAt:      pickString(r.fields["Scraped At"]),
@@ -785,17 +786,28 @@ export async function getActivePipelineJobs(): Promise<PipelineJob[]> {
   for (const dj of djJobs) {
     const prod = dj.dealId ? prodJobByDealId.get(dj.dealId) : null;
 
-    // ── Infer production stage from DripJobs data when no Production record exists ──
-    // This makes the pipeline reflect real Airtable/DripJobs data even before
-    // Miriam creates Production records through the scheduling flow.
+    // ── Infer production stage — priority: Production record > Deal stage > DJ stage ──
+    // The Deal's "Current Stage" in Airtable is the source of truth for where the
+    // job sits in production (e.g. "Project In Progress", "Project Scheduled").
     let inferredStage: ProductionStage = "Pending Schedule";
     if (!prod) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Map Airtable Deal "Current Stage" → ProductionStage
+      const DEAL_STAGE_MAP: Record<string, ProductionStage> = {
+        "Project Pending Schedule": "Pending Schedule",
+        "Project Scheduled":        "Scheduled",
+        "Project In Progress":      "In Progress",
+        "Project Complete":         "Completed",
+        "RES Pending Payment":      "Pending Payment",
+        "Touch Up Needed":          "Final Walkthrough",
+        "Canceled Jobs":            "Completed",
+        "Projects On Hold":         "Pending Schedule",
+      };
 
-      if (dj.djStage === "Scheduled") {
-        // DJ "Scheduled" = the job has been won and is on the books
-        // Default to Scheduled (no start date on DJ Jobs — that lives in Production records)
+      if (dj.dealStage && DEAL_STAGE_MAP[dj.dealStage]) {
+        // ✅ Use the Deal's Current Stage — most accurate source
+        inferredStage = DEAL_STAGE_MAP[dj.dealStage];
+      } else if (dj.djStage === "Scheduled") {
+        // Fallback: DJ "Scheduled" without a Deal stage
         inferredStage = "Scheduled";
       } else if (dj.djStage === "Pending" || dj.djStage === "Accepted") {
         inferredStage = "Pending Schedule";

@@ -174,6 +174,7 @@ export interface DJActiveJob {
   djStage: string | null; // "Scheduled" | "Pending" | "Accepted"
   dealId: string | null;  // linked Airtable Deal record ID (if matched)
   customerId: string | null;       // DripJobs Customer ID — used to look up contact info
+  dealStage: string | null;        // Deal's "Current Stage" from Airtable — source of truth for production stage
   scrapedAt: string | null;
   // Enriched from Contacts table via Customer ID match
   customerPhone: string | null;
