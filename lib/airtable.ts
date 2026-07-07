@@ -16,8 +16,10 @@ import type {
   Zone,
   ProductionStage,
   DealStage,
+  PipelineJob,
 } from "./types";
-import { pmRecordIdByName } from "./auth";
+import { pmRecordIdByName, PM_NAME_TO_RECORD_ID } from "./auth";
+import { getTerritoryByZip, TERRITORIES, type TerritoryId, type TerritoryStats } from "./territories";
 
 const BASE_ID = process.env.AIRTABLE_BASE_ID || "appHvFXShVSNjLCrG";
 
@@ -569,4 +571,312 @@ export async function getPeople(): Promise<Person[]> {
     role:  pickName(r.fields["Role"]),
     email: pickString(r.fields["Email"]),
   }));
+}
+
+// ─── Active Pipeline & Territory Queries ──────────────────────────────────────
+
+/**
+ * Helper to calculate week ranges for filtering jobs
+ */
+function getWeekRange(weeksFromNow: number): { start: string; end: string } {
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay() + 1 + weeksFromNow * 7);
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  return {
+    start: startOfWeek.toISOString().split("T")[0],
+    end: endOfWeek.toISOString().split("T")[0],
+  };
+}
+
+/**
+ * Get all ACTIVE pipeline jobs - merges DJActiveJobs with Production records.
+ * Filters OUT: Completed, Cancelled, Archived, Final Walkthrough (if has payment/completed)
+ * Includes: Pending Schedule, Needs Confirmation, Scheduled, Materials Needed,
+ *           Ready to Start, In Progress, Final Walkthrough, Pending Payment
+ */
+export async function getActivePipelineJobs(): Promise<PipelineJob[]> {
+  const [djJobs, prodJobs] = await Promise.all([getDJActiveJobs(), getProductionJobs()]);
+
+  // Index production jobs by dealId for quick lookup
+  const prodJobByDealId = new Map<string, ProductionJob>();
+  for (const pj of prodJobs) {
+    if (pj.dealId) {
+      prodJobByDealId.set(pj.dealId, pj);
+    }
+  }
+
+  const result: PipelineJob[] = [];
+
+  // Process each DJ active job
+  for (const dj of djJobs) {
+    const prod = dj.dealId ? prodJobByDealId.get(dj.dealId) : null;
+
+    // Build pipeline job
+    const job: PipelineJob = {
+      id: prod?.id || dj.id,
+      djJobId: dj.id,
+      dealId: dj.dealId,
+      isActivated: !!prod,
+      name: dj.customer,
+      address: dj.address,
+      zip: dj.zip,
+      city: dj.city,
+      state: dj.state,
+      projectType: dj.projectType,
+      value: dj.revenue,
+      estimatedHours: dj.estLaborHours,
+      pmName: dj.pmName,
+      pmId: dj.pmId,
+      productionStage: (prod?.stage ?? "Pending Schedule") as ProductionStage,
+      crew: prod?.crew ?? null,
+      crew2: prod?.crew2 ?? null,
+      startDate: prod?.startDate ?? null,
+      endDate: prod?.endDate ?? null,
+      customerConfirmedStart: prod?.customerConfirmedStart ?? false,
+      crewConfirmed: prod?.crewConfirmed ?? false,
+      colorStatus: prod?.colorStatus ?? null,
+      materialStatus: prod?.materialStatus ?? null,
+      specialMaterialsWarning: prod?.specialMaterialsWarning ?? null,
+      siteWalkComplete: prod?.siteWalkComplete ?? false,
+      companyCamUrl: prod?.companyCamUrl ?? null,
+      notes: prod?.notes ?? null,
+      scoreAvg: prod?.scoreAvg ?? null,
+    };
+
+    // Filter: skip "Completed" production jobs
+    if (job.productionStage === "Completed") continue;
+    // Filter: skip DJ jobs that are in completed stage (if no production record)
+    if (!prod && dj.djStage === "Completed") continue;
+
+    result.push(job);
+  }
+
+  return result;
+}
+
+/**
+ * Get active pipeline jobs for a specific territory (by ZIP code match).
+ * Uses the territories.ts ZIP_TO_TERRITORY mapping.
+ */
+export async function getJobsForTerritory(territoryId: TerritoryId): Promise<PipelineJob[]> {
+  const jobs = await getActivePipelineJobs();
+  return jobs.filter((job) => {
+    const terr = getTerritoryByZip(job.zip);
+    return terr?.id === territoryId;
+  });
+}
+
+/**
+ * Get active pipeline jobs assigned to a specific PM (by Airtable People record ID).
+ * Includes both jobs where pmId matches AND DJActiveJobs where pmName maps to that PM.
+ */
+export async function getJobsForPm(pmRecordId: string): Promise<PipelineJob[]> {
+  const jobs = await getActivePipelineJobs();
+  return jobs.filter((job) => job.pmId === pmRecordId);
+}
+
+/**
+ * Compute territory stats from active pipeline jobs.
+ * Returns stats for all 4 territories.
+ */
+export async function getTerritoryStats(): Promise<TerritoryStats[]> {
+  const jobs = await getActivePipelineJobs();
+  const thisWeek = getWeekRange(0);
+  const nextWeek = getWeekRange(1);
+
+  const stats: TerritoryStats[] = [];
+
+  for (const [, territory] of Object.entries(TERRITORIES)) {
+    if (!territory.active) continue;
+
+    const territoryJobs = jobs.filter((job) => getTerritoryByZip(job.zip)?.id === territory.id);
+
+    let totalRevenue = 0;
+    let totalBudgetedHours = 0;
+    let activeJobs = 0;
+    let pendingScheduleJobs = 0;
+    let inProgressJobs = 0;
+    let scheduledJobs = 0;
+    let unscheduledJobs = 0;
+    let jobsThisWeek = 0;
+    let jobsNextWeek = 0;
+
+    for (const job of territoryJobs) {
+      activeJobs++;
+
+      if (job.productionStage === "Pending Schedule") {
+        pendingScheduleJobs++;
+        if (!job.startDate) unscheduledJobs++;
+      }
+      if (job.productionStage === "In Progress") inProgressJobs++;
+      if (job.productionStage === "Scheduled") scheduledJobs++;
+
+      if (job.value) totalRevenue += job.value;
+      if (job.estimatedHours) totalBudgetedHours += job.estimatedHours;
+
+      if (job.startDate && job.startDate >= thisWeek.start && job.startDate <= thisWeek.end) {
+        jobsThisWeek++;
+      }
+      if (job.startDate && job.startDate >= nextWeek.start && job.startDate <= nextWeek.end) {
+        jobsNextWeek++;
+      }
+    }
+
+    // Calculate overload status: healthy < 200h, busy < 350h, overloaded >= 350h (per week)
+    let overloadStatus: "healthy" | "busy" | "overloaded" = "healthy";
+    const weeklyHours = totalBudgetedHours / 4; // rough estimate
+    if (weeklyHours >= 350) overloadStatus = "overloaded";
+    else if (weeklyHours >= 200) overloadStatus = "busy";
+
+    stats.push({
+      territory,
+      activeJobs,
+      pendingScheduleJobs,
+      inProgressJobs,
+      scheduledJobs,
+      totalRevenue,
+      totalBudgetedHours,
+      unscheduledJobs,
+      jobsThisWeek,
+      jobsNextWeek,
+      overloadStatus,
+    });
+  }
+
+  return stats;
+}
+
+/**
+ * PM workload and performance stats
+ */
+export interface PmStats {
+  pmEmail: string;
+  pmName: string;
+  pmRecordId: string | null;
+  activeJobs: number;
+  pendingScheduleJobs: number;
+  inProgressJobs: number;
+  scheduledJobs: number;
+  totalRevenue: number;
+  totalBudgetedHours: number;
+  jobsThisWeek: number;
+  jobsNextWeek: number;
+  missingColorJobs: number;
+  missingMaterialJobs: number;
+  missingCrewJobs: number;
+  unscheduledJobs: number;
+  jobsOutsidePrimaryTerritory: number;
+  overloadStatus: "healthy" | "busy" | "overloaded";
+  territories: string[];
+}
+
+/**
+ * Compute PM workload stats from active pipeline jobs.
+ */
+export async function getPmStats(): Promise<PmStats[]> {
+  const jobs = await getActivePipelineJobs();
+  const thisWeek = getWeekRange(0);
+  const nextWeek = getWeekRange(1);
+
+  // Build map of PM record ID → (name, email)
+  const pmInfo = new Map<string, { name: string; email: string }>();
+  pmInfo.set("recIWuHhrhcJvOCIM", { name: "Nico Lawler", email: "nico@provisionpaints.com" });
+  pmInfo.set("recsAsvt9rVtOdN7w", { name: "Tyler Grodivant", email: "tyler@provisionpaints.com" });
+  pmInfo.set("recAliPlaceholder0001", { name: "Ali", email: "ali@provisionpaints.com" });
+
+  // Group jobs by PM
+  const jobsByPm = new Map<string, PipelineJob[]>();
+  for (const job of jobs) {
+    const pmId = job.pmId || "unknown";
+    if (!jobsByPm.has(pmId)) jobsByPm.set(pmId, []);
+    jobsByPm.get(pmId)!.push(job);
+  }
+
+  const stats: PmStats[] = [];
+
+  for (const [pmId, pmJobs] of jobsByPm) {
+    const info = pmInfo.get(pmId);
+    if (!info) continue; // Skip unknown PMs
+
+    let activeJobs = 0;
+    let pendingScheduleJobs = 0;
+    let inProgressJobs = 0;
+    let scheduledJobs = 0;
+    let totalRevenue = 0;
+    let totalBudgetedHours = 0;
+    let jobsThisWeek = 0;
+    let jobsNextWeek = 0;
+    let missingColorJobs = 0;
+    let missingMaterialJobs = 0;
+    let missingCrewJobs = 0;
+    let unscheduledJobs = 0;
+    const territoriesSet = new Set<string>();
+    let jobsOutsidePrimaryTerritory = 0;
+
+    for (const job of pmJobs) {
+      activeJobs++;
+
+      if (job.productionStage === "Pending Schedule") {
+        pendingScheduleJobs++;
+        if (!job.startDate) unscheduledJobs++;
+      }
+      if (job.productionStage === "In Progress") inProgressJobs++;
+      if (job.productionStage === "Scheduled") scheduledJobs++;
+
+      if (job.value) totalRevenue += job.value;
+      if (job.estimatedHours) totalBudgetedHours += job.estimatedHours;
+
+      if (job.startDate && job.startDate >= thisWeek.start && job.startDate <= thisWeek.end) {
+        jobsThisWeek++;
+      }
+      if (job.startDate && job.startDate >= nextWeek.start && job.startDate <= nextWeek.end) {
+        jobsNextWeek++;
+      }
+
+      if (job.colorStatus === "Not Started") missingColorJobs++;
+      if (job.materialStatus === "Not Ordered" || job.materialStatus === "Backordered") {
+        missingMaterialJobs++;
+      }
+      if (!job.crew && (job.productionStage === "Scheduled" || job.productionStage === "In Progress")) {
+        missingCrewJobs++;
+      }
+
+      const terr = getTerritoryByZip(job.zip);
+      if (terr) {
+        territoriesSet.add(terr.name);
+        // Count jobs outside primary territory (rough heuristic: compare to first territory)
+        if (territoriesSet.size > 1) jobsOutsidePrimaryTerritory++;
+      }
+    }
+
+    // overloadStatus: healthy < 40h budgetedHours, busy < 60h, overloaded >= 60h
+    let overloadStatus: "healthy" | "busy" | "overloaded" = "healthy";
+    if (totalBudgetedHours >= 60) overloadStatus = "overloaded";
+    else if (totalBudgetedHours >= 40) overloadStatus = "busy";
+
+    stats.push({
+      pmEmail: info.email,
+      pmName: info.name,
+      pmRecordId: pmId,
+      activeJobs,
+      pendingScheduleJobs,
+      inProgressJobs,
+      scheduledJobs,
+      totalRevenue,
+      totalBudgetedHours,
+      jobsThisWeek,
+      jobsNextWeek,
+      missingColorJobs,
+      missingMaterialJobs,
+      missingCrewJobs,
+      unscheduledJobs,
+      jobsOutsidePrimaryTerritory,
+      overloadStatus,
+      territories: Array.from(territoriesSet),
+    });
+  }
+
+  return stats;
 }

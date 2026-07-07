@@ -1,4 +1,5 @@
 // Shared types for the Production app
+import type { TerritoryId } from "./territories";
 
 export type DealStage =
   | "Project Pending Schedule"
@@ -190,6 +191,7 @@ export interface MapJob {
   startDate: string | null;
   endDate: string | null;
   isActivated: boolean;
+  territoryId?: TerritoryId;
 }
 
 /**
@@ -232,4 +234,55 @@ export interface PipelineJob {
   companyCamUrl: string | null;
   notes: string | null;
   scoreAvg: number | null;
+
+  // Territory assignment
+  territoryId?: TerritoryId;
+  territoryName?: string;
+}
+
+/**
+ * Scheduling readiness status for a job
+ */
+export type SchedulingReadiness =
+  | "ready"
+  | "missing-colors"
+  | "missing-materials"
+  | "missing-crew"
+  | "missing-deposit"
+  | "needs-customer-confirmation"
+  | "needs-review"
+  | "on-hold"
+  | "missing-info";
+
+/**
+ * AI-generated suggestion for scheduling a job to a PM and time period
+ */
+export interface SchedulerSuggestion {
+  jobId: string;
+  suggestedPmEmail: string | null;
+  suggestedPmName: string | null;
+  suggestedStartDate: string | null;    // YYYY-MM-DD
+  suggestedEndDate: string | null;      // YYYY-MM-DD
+  territoryId: TerritoryId;
+  territoryName: string;
+  pmScore: number;                       // 0-100
+  pmScoreReason: string;
+  schedulingReadiness: SchedulingReadiness;
+  missingItems: string[];
+  blockingItems: string[];
+  explanation: string;                   // Human-readable full explanation
+}
+
+/**
+ * PM capacity constraints and territory assignments
+ */
+export interface PMCapacity {
+  pmEmail: string;
+  pmName: string;
+  pmRecordId: string | null;
+  territories: TerritoryId[];           // primary territories
+  backupTerritories: TerritoryId[];     // backup for overflow
+  maxBudgetedHoursPerWeek: number;      // default 55
+  maxActiveJobs: number;                // default 15
+  active: boolean;
 }

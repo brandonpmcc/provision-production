@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, CircleMarker, Rectangle, Tooltip, Popup, useMa
 import "leaflet/dist/leaflet.css";
 import { X, ExternalLink, ChevronDown } from "lucide-react";
 import type { Crew, MapJob } from "@/lib/types";
+import { TERRITORIES, getTerritoryByZip } from "@/lib/territories";
 
 // ─── Geographic constants ──────────────────────────────────────────────────
 
@@ -195,9 +196,10 @@ function FlyTo({ center, zoom }: { center: [number, number] | null; zoom?: numbe
 interface MapClientProps {
   jobs: MapJob[];
   crews: Crew[];
+  viewMode?: "zones" | "territories";
 }
 
-export default function MapClient({ jobs, crews }: MapClientProps) {
+export default function MapClient({ jobs, crews, viewMode: initialViewMode = "zones" }: MapClientProps) {
   const [colorMode, setColorMode]       = useState<"stage" | "crew">("stage");
   const [stageFilter, setStageFilter]   = useState<string | null>(null);
   const [pmFilter, setPmFilter]         = useState<string | null>(null);
@@ -205,6 +207,7 @@ export default function MapClient({ jobs, crews }: MapClientProps) {
   const [selectedCrew, setSelectedCrew] = useState<string | null>(null);
   const [flyTarget, setFlyTarget]       = useState<{ center: [number, number]; zoom?: number } | null>(null);
   const [selectedJob, setSelectedJob]   = useState<MapJob | null>(null);
+  const [viewMode, setViewMode]         = useState<"zones" | "territories">(initialViewMode);
 
   // Derived lists for filter dropdowns
   const pms = useMemo(() =>
@@ -244,13 +247,27 @@ export default function MapClient({ jobs, crews }: MapClientProps) {
     [filtered]
   );
 
-  // Zone aggregates for the sidebar
+  // Zone aggregates for the sidebar (when in zones view)
   const zoneAgg = useMemo(() => {
     const m = new Map<string, { count: number; value: number }>();
     for (const j of filtered) {
       const z = zoneFor(j.zip);
       if (!m.has(z)) m.set(z, { count: 0, value: 0 });
       const d = m.get(z)!;
+      d.count++;
+      d.value += j.value ?? 0;
+    }
+    return [...m.entries()].sort((a, b) => b[1].count - a[1].count);
+  }, [filtered]);
+
+  // Territory aggregates for the sidebar (when in territories view)
+  const territoryAgg = useMemo(() => {
+    const m = new Map<string, { count: number; value: number }>();
+    for (const j of filtered) {
+      const terr = getTerritoryByZip(j.zip);
+      const terrName = terr?.name || "Unknown";
+      if (!m.has(terrName)) m.set(terrName, { count: 0, value: 0 });
+      const d = m.get(terrName)!;
       d.count++;
       d.value += j.value ?? 0;
     }
@@ -275,8 +292,32 @@ export default function MapClient({ jobs, crews }: MapClientProps) {
 
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-100 bg-orange-50">
-          <div className="font-semibold text-sm text-gray-800">Geographic View</div>
-          <div className="text-xs text-gray-500 mt-0.5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-semibold text-sm text-gray-800">Geographic View</div>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setViewMode("zones")}
+                className={`text-xs px-2 py-1 rounded font-medium transition ${
+                  viewMode === "zones"
+                    ? "bg-white text-orange-600 shadow"
+                    : "text-gray-600 hover:bg-white/50"
+                }`}
+              >
+                Zones
+              </button>
+              <button
+                onClick={() => setViewMode("territories")}
+                className={`text-xs px-2 py-1 rounded font-medium transition ${
+                  viewMode === "territories"
+                    ? "bg-white text-orange-600 shadow"
+                    : "text-gray-600 hover:bg-white/50"
+                }`}
+              >
+                Territories
+              </button>
+            </div>
+          </div>
+          <div className="text-xs text-gray-500">
             {filtered.length} jobs · {money(filtered.reduce((s, j) => s + (j.value ?? 0), 0))} pipeline
           </div>
         </div>
@@ -377,42 +418,82 @@ export default function MapClient({ jobs, crews }: MapClientProps) {
           )}
         </div>
 
-        {/* Zone stats */}
+        {/* Zone/Territory stats */}
         <div className="flex-1 overflow-y-auto">
           <div className="px-4 py-2.5">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-              Jobs by Zone
+              Jobs by {viewMode === "zones" ? "Zone" : "Territory"}
             </div>
             <div className="space-y-2">
-              {zoneAgg.map(([zone, data]) => (
-                <button
-                  key={zone}
-                  className="w-full text-left hover:bg-gray-50 rounded-md p-1.5 transition"
-                  onClick={() => {
-                    const rect = ZONE_RECTS[zone];
-                    if (rect) {
-                      const lat = (rect[0][0] + rect[1][0]) / 2;
-                      const lng = (rect[0][1] + rect[1][1]) / 2;
-                      setFlyTarget({ center: [lat, lng], zoom: 12 });
-                    }
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-700 truncate">{zone}</span>
-                    <span className="text-xs font-semibold text-orange-600 ml-2 flex-shrink-0">
-                      {data.count}
-                    </span>
-                  </div>
-                  <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-orange-400 rounded-full"
-                      style={{ width: `${(data.count / maxZoneCount) * 100}%` }}
-                    />
-                  </div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">{money(data.value)}</div>
-                </button>
-              ))}
-              {zoneAgg.length === 0 && (
+              {viewMode === "zones"
+                ? zoneAgg.map(([zone, data]) => (
+                    <button
+                      key={zone}
+                      className="w-full text-left hover:bg-gray-50 rounded-md p-1.5 transition"
+                      onClick={() => {
+                        const rect = ZONE_RECTS[zone];
+                        if (rect) {
+                          const lat = (rect[0][0] + rect[1][0]) / 2;
+                          const lng = (rect[0][1] + rect[1][1]) / 2;
+                          setFlyTarget({ center: [lat, lng], zoom: 12 });
+                        }
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-700 truncate">{zone}</span>
+                        <span className="text-xs font-semibold text-orange-600 ml-2 flex-shrink-0">
+                          {data.count}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-orange-400 rounded-full"
+                          style={{ width: `${(data.count / maxZoneCount) * 100}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">{money(data.value)}</div>
+                    </button>
+                  ))
+                : territoryAgg.map(([territory, data]) => {
+                    const terr = Object.values(TERRITORIES).find((t) => t.name === territory);
+                    const maxTerrCount = Math.max(...territoryAgg.map(([, d]) => d.count), 1);
+                    return (
+                      <button
+                        key={territory}
+                        className="w-full text-left hover:bg-gray-50 rounded-md p-1.5 transition"
+                        onClick={() => {
+                          if (terr) {
+                            const jaxCenter: [number, number] = [30.25, -81.55];
+                            setFlyTarget({ center: jaxCenter, zoom: 11 });
+                          }
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          {terr && (
+                            <div
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: terr.color }}
+                            />
+                          )}
+                          <span className="text-xs text-gray-700 truncate flex-1 ml-1">{territory}</span>
+                          <span className="text-xs font-semibold text-orange-600 ml-2 flex-shrink-0">
+                            {data.count}
+                          </span>
+                        </div>
+                        <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition"
+                            style={{
+                              backgroundColor: terr?.color || "#f97316",
+                              width: `${(data.count / maxTerrCount) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-0.5">{money(data.value)}</div>
+                      </button>
+                    );
+                  })}
+              {(viewMode === "zones" ? zoneAgg.length : territoryAgg.length) === 0 && (
                 <div className="text-xs text-gray-400 text-center py-4">No jobs match filters</div>
               )}
             </div>
@@ -462,20 +543,42 @@ export default function MapClient({ jobs, crews }: MapClientProps) {
             maxZoom={20}
           />
 
-          {/* Zone rectangles — always shown as light outlines */}
+          {/* Zone rectangles — colored by territory if in territory view */}
           {Object.entries(ZONE_RECTS).map(([zone, bounds]) => {
             const isCovered = selectedCrewZones.includes(zone as never);
+            let zoneColor = "#d1d5db";
+            let zoneFillColor = "#f3f4f6";
+            let zoneOpacity = 0.04;
+
+            if (viewMode === "territories") {
+              // Find which territory this zone belongs to by checking ZIP codes
+              const zoneZipEntry = Object.entries(ZONE_BY_ZIP).find(([, z]) => z === zone);
+              if (zoneZipEntry) {
+                const [zip] = zoneZipEntry;
+                const territory = getTerritoryByZip(zip);
+                if (territory) {
+                  zoneColor = territory.color;
+                  zoneFillColor = territory.color;
+                  zoneOpacity = 0.15;
+                }
+              }
+            } else if (isCovered) {
+              zoneColor = "#3b82f6";
+              zoneFillColor = "#3b82f6";
+              zoneOpacity = 0.12;
+            }
+
             return (
               <Rectangle
                 key={zone}
                 bounds={bounds}
                 pathOptions={{
-                  color:       isCovered ? "#3b82f6" : "#d1d5db",
-                  weight:      isCovered ? 2 : 1,
-                  fill:        true,
-                  fillColor:   isCovered ? "#3b82f6" : "#f3f4f6",
-                  fillOpacity: isCovered ? 0.12 : 0.04,
-                  dashArray:   isCovered ? undefined : "4 4",
+                  color: zoneColor,
+                  weight: isCovered && viewMode === "zones" ? 2 : 1,
+                  fill: true,
+                  fillColor: zoneFillColor,
+                  fillOpacity: zoneOpacity,
+                  dashArray: isCovered && viewMode === "zones" ? undefined : "4 4",
                 }}
               >
                 <Tooltip sticky={false} direction="center" permanent={false}>

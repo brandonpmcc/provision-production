@@ -12,23 +12,37 @@ import {
   Settings,
   BarChart2,
   Star,
+  Clock,
+  Globe,
+  Users,
 } from "lucide-react";
 
-const NAV_ALL = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+}
+
+const NAV_ALL: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/pending-schedule", label: "Pending Schedule", icon: Clock, badge: "NEW" },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/schedule", label: "Schedule", icon: Calendar },
-  { href: "/capacity", label: "Capacity", icon: BarChart2 },
-  { href: "/crews", label: "Crew Health", icon: Star },
   { href: "/map", label: "Map", icon: Map },
+  { href: "/capacity", label: "Capacity", icon: BarChart2 },
+  { href: "/territories", label: "Territories", icon: Globe, badge: "NEW" },
+  { href: "/pm-load", label: "PM Workload", icon: Users, badge: "NEW" },
+  { href: "/crews", label: "Crew Health", icon: Star },
   { href: "/materials", label: "Materials", icon: Package },
   { href: "/reminders", label: "Reminders", icon: Bell },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 // PMs only see the operational views relevant to their work
-const NAV_PM = [
+const NAV_PM: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/pending-schedule", label: "Pending Schedule", icon: Clock },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/schedule", label: "Schedule", icon: Calendar },
   { href: "/reminders", label: "Reminders", icon: Bell },
@@ -68,14 +82,19 @@ export async function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {nav.map(({ href, label, icon: Icon }) => (
+        {nav.map(({ href, label, icon: Icon, badge }) => (
           <Link
             key={href}
             href={href}
             className="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-white/5 text-white/80 hover:text-white transition"
           >
             <Icon className="w-4 h-4" />
-            {label}
+            <span className="flex-1">{label}</span>
+            {badge && (
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-provision-orange text-white">
+                {badge}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
