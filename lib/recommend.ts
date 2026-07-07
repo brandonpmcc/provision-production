@@ -468,3 +468,133 @@ export function determineSchedulingReadiness(
 
   return { readiness, missingItems, blockingItems };
 }
+
+// ─── Start date prediction ─────────────────────────────────────────────────
+
+export interface StartDatePrediction {
+  /** ISO date string "YYYY-MM-DD" */
+  suggestedDate: string;
+  /** "Mon, Jan 15" */
+  suggestedDateFormatted: string;
+  /** "Week of Jan 15" */
+  weekLabel: string;
+  /** How confident based on data availability */
+  confidence: "high" | "medium" | "low";
+  /** Human-readable explanation */
+  reason: string;
+  /** Calendar days from today */
+  daysFromNow: number;
+}
+
+/**
+ * Predict the earliest realistic start date for a pending job.
+ *
+ * Strategy:
+ *  1. Find all active (non-completed) jobs assigned to the suggested PM
+ *  2. Take the latest endDate among those jobs — that's when they'll be free
+ *  3. Add a 3-day buffer for materials / coordination
+ *  4. Round forward to the next Monday (start of work week)
+ *  5. Enforce a minimum of 10 days from today (lead time floor)
+ */
+export function predictStartDate(
+  _job: PipelineJob,
+  allJobs: PipelineJob[],
+  suggestedPmName: string | null
+): StartDatePrediction {
+  const BUFFER_DAYS   = 3;   // days gap after last job ends
+  const MIN_LEAD_DAYS = 10;  // never suggest sooner than 10 days out
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const BUSY_STAGES = new Set([
+    "Needs Confirmation", "Scheduled", "Materials Needed",
+    "Ready to Start", "In Progress", "Final Walkthrough",
+  ]);
+
+  // Find active jobs for this PM
+  const pmJobs = suggestedPmName
+    ? allJobs.filter(
+        (j) =>
+          j.pmName === suggestedPmName &&
+          BUSY_STAGES.has(j.productionStage)
+      )
+    : [];
+
+  // Latest end date across PM's active jobs
+  let latestEnd: Date = new Date(today);
+  for (const j of pmJobs) {
+    if (!j.endDate) continue;
+    const d = new Date(j.endDate + "T00:00:00");
+    if (d > latestEnd) latestEnd = d;
+  }
+
+  // Add buffer
+  const candidate = new Date(latestEnd);
+  candidate.setDate(candidate.getDate() + BUFFER_DAYS);
+
+  // Round up to next Monday
+  const dow = candidate.getDay(); // 0=Sun 1=Mon … 6=Sat
+  if (dow !== 1) {
+    const add = dow === 0 ? 1 : 8 - dow;
+    candidate.setDate(candidate.getDate() + add);
+  }
+
+  // Enforce minimum lead time
+  const minDate = new Date(today);
+  minDate.setDate(minDate.getDate() + MIN_LEAD_DAYS);
+  // round minDate up to Monday too
+  const minDow = minDate.getDay();
+  if (minDow !== 1) {
+    const add = minDow === 0 ? 1 : 8 - minDow;
+    minDate.setDate(minDate.getDate() + add);
+  }
+
+  const finalDate = candidate > minDate ? candidate : minDate;
+
+  const daysFromNow = Math.round(
+    (finalDate.getTime() - today.getTime()) / 86_400_000
+  );
+
+  const suggestedDate = finalDate.toISOString().split("T")[0];
+
+  const suggestedDateFormatted = finalDate.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric",
+  });
+
+  const weekLabel =
+    "Week of " +
+    finalDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  let confidence: "high" | "medium" | "low";
+  let reason: string;
+
+  if (!suggestedPmName) {
+    confidence = "low";
+    reason = "No PM assigned — assign a PM for a better estimate";
+  } else if (pmJobs.length === 0) {
+    confidence = "medium";
+    reason = `${suggestedPmName} has no scheduled jobs — earliest open slot`;
+  } else {
+    const jobWithLatestEnd = pmJobs
+      .filter((j) => j.endDate)
+      .sort((a, b) =>
+        new Date(b.endDate!).getTime() - new Date(a.endDate!).getTime()
+      )[0];
+    confidence = "high";
+    reason = `After ${suggestedPmName}'s ${pmJobs.length} active job${pmJobs.length !== 1 ? "s" : ""}${
+      jobWithLatestEnd?.endDate
+        ? ` (last ends ${new Date(jobWithLatestEnd.endDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
+        : ""
+    }`;
+  }
+
+  return {
+    suggestedDate,
+    suggestedDateFormatted,
+    weekLabel,
+    confidence,
+    reason,
+    daysFromNow,
+  };
+}

@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { getProductionJobs, getCrews, getMonthlyGoal, getActivePipelineJobs, getPmStats } from "@/lib/airtable";
 import { TERRITORIES, getTerritoryByZip, getTerritoryByAddress } from "@/lib/territories";
-import { recommendPMsForTerritory, determineSchedulingReadiness } from "@/lib/recommend";
+import { recommendPMsForTerritory, determineSchedulingReadiness, predictStartDate } from "@/lib/recommend";
 import { ScheduleBoard } from "@/components/ScheduleBoard";
 import { PendingScheduleClient } from "@/app/(main)/pending-schedule/PendingScheduleClient";
 import type { PipelineJob } from "@/lib/types";
@@ -74,14 +74,11 @@ export default async function SchedulePage({
     const territory = getJobTerritory(job);
     const { readiness, missingItems, blockingItems } = determineSchedulingReadiness(job);
     const pmSuggestions = recommendPMsForTerritory(job, allJobs, Object.values(TERRITORIES));
+    const topPmSuggestion = pmSuggestions[0] || null;
+    const prediction = predictStartDate(job, allJobs, topPmSuggestion?.pmName ?? null);
     return {
-      job,
-      territory,
-      readiness,
-      missingItems,
-      blockingItems,
-      topPmSuggestion: pmSuggestions[0] || null,
-      pmSuggestions,
+      job, territory, readiness, missingItems, blockingItems,
+      topPmSuggestion, pmSuggestions, prediction,
     };
   });
 

@@ -1,19 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState, useMemo } from "react";
 import type { PipelineJob, SchedulingReadiness } from "@/lib/types";
-import type { Territory, TerritoryId } from "@/lib/territories";
+import type { Territory } from "@/lib/territories";
+import type { StartDatePrediction } from "@/lib/recommend";
+import { PendingQueueMap, getJobCoords, type MapJob } from "./PendingQueueMap";
 import {
-  AlertTriangle,
-  CheckCircle,
-  AlertCircle,
-  ExternalLink,
-  ChevronDown,
-  MapPin,
-  DollarSign,
-  Clock,
-  Package,
+  CheckCircle, AlertTriangle, AlertCircle, Package,
+  MapPin, DollarSign, Clock, User, CalendarDays,
+  ChevronRight, Star,
 } from "lucide-react";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface EnrichedJob {
   job: PipelineJob;
@@ -21,14 +19,9 @@ interface EnrichedJob {
   readiness: SchedulingReadiness;
   missingItems: string[];
   blockingItems: string[];
-  topPmSuggestion: {
-    pmName: string;
-    score: number;
-  } | null;
-  pmSuggestions: Array<{
-    pmName: string;
-    score: number;
-  }>;
+  topPmSuggestion: { pmName: string; score: number; reasons?: string[]; warnings?: string[] } | null;
+  pmSuggestions: Array<{ pmName: string; score: number }>;
+  prediction: StartDatePrediction;
 }
 
 interface PendingScheduleClientProps {
@@ -42,354 +35,379 @@ interface PendingScheduleClientProps {
   territories: Territory[];
 }
 
-type FilterTab = "all" | "ready" | "missing-info" | "needs-review";
+// ─── Readiness config ────────────────────────────────────────────────────────
 
-const READINESS_INFO: Record<SchedulingReadiness, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-  ready: {
-    label: "Ready to Schedule",
-    color: "text-green-700",
-    bg: "bg-green-50",
-    icon: <CheckCircle className="w-4 h-4" />,
-  },
-  "missing-colors": {
-    label: "Missing Colors",
-    color: "text-yellow-700",
-    bg: "bg-yellow-50",
-    icon: <AlertTriangle className="w-4 h-4" />,
-  },
-  "missing-materials": {
-    label: "Missing Materials",
-    color: "text-orange-700",
-    bg: "bg-orange-50",
-    icon: <Package className="w-4 h-4" />,
-  },
-  "missing-crew": {
-    label: "Missing Crew",
-    color: "text-red-700",
-    bg: "bg-red-50",
-    icon: <AlertCircle className="w-4 h-4" />,
-  },
-  "missing-deposit": {
-    label: "Missing Deposit",
-    color: "text-red-700",
-    bg: "bg-red-50",
-    icon: <AlertCircle className="w-4 h-4" />,
-  },
-  "needs-customer-confirmation": {
-    label: "Needs Confirmation",
-    color: "text-yellow-700",
-    bg: "bg-yellow-50",
-    icon: <AlertTriangle className="w-4 h-4" />,
-  },
-  "needs-review": {
-    label: "Needs Review",
-    color: "text-yellow-700",
-    bg: "bg-yellow-50",
-    icon: <AlertTriangle className="w-4 h-4" />,
-  },
-  "on-hold": {
-    label: "On Hold",
-    color: "text-gray-700",
-    bg: "bg-gray-50",
-    icon: <AlertCircle className="w-4 h-4" />,
-  },
-  "missing-info": {
-    label: "Missing Info",
-    color: "text-gray-700",
-    bg: "bg-gray-50",
-    icon: <AlertCircle className="w-4 h-4" />,
-  },
+const READINESS: Record<SchedulingReadiness, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
+  "ready":                    { label: "Ready",          color: "text-green-700",  bg: "bg-green-50  border-green-200",  icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  "missing-colors":           { label: "Colors needed",  color: "text-yellow-700", bg: "bg-yellow-50 border-yellow-200", icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  "missing-materials":        { label: "Materials",      color: "text-orange-700", bg: "bg-orange-50 border-orange-200", icon: <Package className="w-3.5 h-3.5" /> },
+  "missing-crew":             { label: "No crew",        color: "text-red-700",    bg: "bg-red-50    border-red-200",    icon: <AlertCircle className="w-3.5 h-3.5" /> },
+  "missing-deposit":          { label: "No deposit",     color: "text-red-700",    bg: "bg-red-50    border-red-200",    icon: <AlertCircle className="w-3.5 h-3.5" /> },
+  "needs-customer-confirmation": { label: "Needs confirm", color: "text-yellow-700", bg: "bg-yellow-50 border-yellow-200", icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  "needs-review":             { label: "Review",         color: "text-gray-600",   bg: "bg-gray-50   border-gray-200",   icon: <AlertCircle className="w-3.5 h-3.5" /> },
+  "on-hold":                  { label: "On hold",        color: "text-gray-500",   bg: "bg-gray-50   border-gray-200",   icon: <Clock className="w-3.5 h-3.5" /> },
+  "missing-info":             { label: "Missing info",   color: "text-gray-600",   bg: "bg-gray-50   border-gray-200",   icon: <AlertCircle className="w-3.5 h-3.5" /> },
 };
+
+// ─── Money helper ─────────────────────────────────────────────────────────────
+
+function money(n: number | null | undefined) {
+  if (!n) return "—";
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${n}`;
+}
+
+// ─── Confidence badge ──────────────────────────────────────────────────────────
+
+function ConfidenceDot({ confidence }: { confidence: "high" | "medium" | "low" }) {
+  const map = {
+    high:   "bg-provision-teal",
+    medium: "bg-yellow-400",
+    low:    "bg-gray-300",
+  };
+  return <span className={`inline-block w-2 h-2 rounded-full ${map[confidence]} flex-shrink-0`} />;
+}
+
+// ─── Job card ──────────────────────────────────────────────────────────────────
+
+function JobCard({
+  ej,
+  isSelected,
+  onSelect,
+}: {
+  ej: EnrichedJob;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const r = READINESS[ej.readiness] ?? READINESS["needs-review"];
+  const pm = ej.topPmSuggestion;
+  const pred = ej.prediction;
+
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full text-left rounded-xl border-2 transition-all duration-150 p-4 space-y-3 ${
+        isSelected
+          ? "border-provision-orange shadow-card-orange bg-white"
+          : "border-transparent bg-white shadow-card hover:shadow-card-hover hover:border-provision-gray-border"
+      }`}
+    >
+      {/* Row 1: name + territory + readiness */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="font-display font-black text-[15px] text-provision-navy uppercase tracking-tight leading-tight truncate">
+            {ej.job.name || ej.job.address || "Unnamed Job"}
+          </div>
+          {ej.job.address && ej.job.name && (
+            <div className="flex items-center gap-1 text-xs text-provision-gray-text mt-0.5 truncate">
+              <MapPin className="w-3 h-3 flex-shrink-0" />
+              {ej.job.address}
+              {ej.job.zip && <span className="text-provision-gray-muted ml-0.5">{ej.job.zip}</span>}
+            </div>
+          )}
+        </div>
+        {/* Territory pill */}
+        <div
+          className="flex-shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-white text-[10px] font-bold uppercase tracking-wide"
+          style={{ backgroundColor: ej.territory.color }}
+        >
+          {ej.territory.name.replace(" Expansion", "")}
+        </div>
+      </div>
+
+      {/* Row 2: PM suggestion + start date — THE KEY INFO */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* PM suggestion */}
+        <div className={`rounded-lg p-2.5 border ${
+          pm ? "bg-provision-orange-light border-provision-orange/20" : "bg-provision-gray border-provision-gray-mid"
+        }`}>
+          <div className="flex items-center gap-1 mb-1">
+            <User className="w-3 h-3 text-provision-orange flex-shrink-0" />
+            <span className="text-[10px] font-bold text-provision-orange uppercase tracking-wide">Suggested PM</span>
+          </div>
+          {pm ? (
+            <div>
+              <div className="font-display font-black text-[14px] text-provision-navy uppercase leading-tight">
+                {pm.pmName.split(" ")[0]}
+              </div>
+              <div className="flex items-center gap-1 mt-0.5">
+                <div className="h-1 flex-1 rounded-full bg-provision-orange/20 overflow-hidden">
+                  <div
+                    className="h-full bg-provision-orange rounded-full"
+                    style={{ width: `${pm.score}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-bold text-provision-orange">{pm.score}%</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-provision-gray-muted italic">None assigned</div>
+          )}
+        </div>
+
+        {/* Predicted start date */}
+        <div className={`rounded-lg p-2.5 border ${
+          pred.confidence === "high"
+            ? "bg-provision-teal-light border-provision-teal/20"
+            : pred.confidence === "medium"
+            ? "bg-yellow-50 border-yellow-200"
+            : "bg-provision-gray border-provision-gray-mid"
+        }`}>
+          <div className="flex items-center gap-1 mb-1">
+            <CalendarDays className={`w-3 h-3 flex-shrink-0 ${
+              pred.confidence === "high" ? "text-provision-teal" :
+              pred.confidence === "medium" ? "text-yellow-600" : "text-provision-gray-muted"
+            }`} />
+            <span className={`text-[10px] font-bold uppercase tracking-wide ${
+              pred.confidence === "high" ? "text-provision-teal" :
+              pred.confidence === "medium" ? "text-yellow-600" : "text-provision-gray-muted"
+            }`}>Predicted Start</span>
+          </div>
+          <div className="font-display font-black text-[14px] text-provision-navy uppercase leading-tight">
+            {pred.suggestedDateFormatted}
+          </div>
+          <div className="flex items-center gap-1 mt-0.5">
+            <ConfidenceDot confidence={pred.confidence} />
+            <span className="text-[10px] text-provision-gray-text truncate">{pred.reason}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Revenue + hours + readiness + type */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {ej.job.value && (
+          <span className="flex items-center gap-1 text-xs font-bold text-provision-navy">
+            <DollarSign className="w-3 h-3 text-provision-orange" />
+            {money(ej.job.value)}
+          </span>
+        )}
+        {ej.job.estimatedHours && (
+          <span className="flex items-center gap-1 text-xs text-provision-gray-text">
+            <Clock className="w-3 h-3" />
+            {ej.job.estimatedHours}h
+          </span>
+        )}
+        {ej.job.projectType && (
+          <span className="text-xs text-provision-gray-text">{ej.job.projectType}</span>
+        )}
+        {/* Readiness badge */}
+        <span className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${r.color} ${r.bg}`}>
+          {r.icon}
+          {r.label}
+        </span>
+      </div>
+
+      {/* Row 4: blocking items (if any) */}
+      {ej.blockingItems.length > 0 && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-1.5 text-xs text-red-700 space-y-0.5">
+          {ej.blockingItems.slice(0, 2).map((b, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" />
+              {b}
+            </div>
+          ))}
+        </div>
+      )}
+    </button>
+  );
+}
+
+// ─── Filter tabs ──────────────────────────────────────────────────────────────
+
+type FilterTab = "all" | "ready" | "needs-info" | "review";
+
+// ─── Main client ──────────────────────────────────────────────────────────────
 
 export function PendingScheduleClient({
   enrichedJobs,
   readinessCounts,
   territories,
 }: PendingScheduleClientProps) {
-  const [activeTab, setActiveTab] = useState<FilterTab>("all");
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [filter, setFilter]   = useState<FilterTab>("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sortBy, setSortBy]   = useState<"revenue" | "date" | "territory">("revenue");
 
-  const filteredJobs = useMemo(() => {
-    switch (activeTab) {
-      case "ready":
-        return enrichedJobs.filter((ej) => ej.readiness === "ready");
-      case "missing-info":
-        return enrichedJobs.filter((ej) => ej.readiness === "missing-info");
-      case "needs-review":
-        return enrichedJobs.filter((ej) => ej.readiness === "needs-review");
-      default:
-        return enrichedJobs;
-    }
-  }, [enrichedJobs, activeTab]);
+  // Build filtered + sorted job list
+  const filtered = useMemo(() => {
+    let list = enrichedJobs;
+    if (filter === "ready")      list = list.filter(e => e.readiness === "ready");
+    if (filter === "needs-info") list = list.filter(e => e.blockingItems.length > 0);
+    if (filter === "review")     list = list.filter(e => e.readiness === "needs-review" || e.missingItems.length > 0);
 
-  const toggleRowExpanded = (jobId: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(jobId)) {
-        next.delete(jobId);
-      } else {
-        next.add(jobId);
-      }
-      return next;
+    return [...list].sort((a, b) => {
+      if (sortBy === "revenue")   return (b.job.value ?? 0) - (a.job.value ?? 0);
+      if (sortBy === "date")      return a.prediction.daysFromNow - b.prediction.daysFromNow;
+      if (sortBy === "territory") return a.territory.name.localeCompare(b.territory.name);
+      return 0;
     });
-  };
+  }, [enrichedJobs, filter, sortBy]);
 
-  const getTerritoryColor = (territoryId: TerritoryId) => {
-    const territory = territories.find((t) => t.id === territoryId);
-    return territory?.color || "#6b7280";
-  };
+  // Build map jobs (only jobs that have mappable coordinates)
+  const mapJobs: MapJob[] = useMemo(() =>
+    filtered.flatMap((ej) => {
+      const coords = getJobCoords(ej.job.zip);
+      if (!coords) return [];
+      return [{
+        job: ej.job,
+        territory: ej.territory,
+        suggestedPm: ej.topPmSuggestion?.pmName ?? null,
+        pmScore: ej.topPmSuggestion?.score ?? 0,
+        prediction: ej.prediction,
+        lat: coords[0],
+        lng: coords[1],
+      }];
+    }),
+  [filtered]);
+
+  const filterTabs: { id: FilterTab; label: string; count: number }[] = [
+    { id: "all",        label: "All",         count: readinessCounts.all },
+    { id: "ready",      label: "Ready",       count: readinessCounts.ready },
+    { id: "needs-info", label: "Needs Info",  count: readinessCounts.missingInfo },
+    { id: "review",     label: "Review",      count: readinessCounts.needsReview },
+  ];
 
   return (
     <div className="space-y-4">
-      {/* Filter Tabs */}
-      <div className="flex gap-2 border-b border-provision-gray-mid">
-        {(
-          [
-            { key: "all" as const, label: "All", count: readinessCounts.all },
-            { key: "ready" as const, label: "Ready to Schedule", count: readinessCounts.ready },
-            { key: "missing-info" as const, label: "Missing Info", count: readinessCounts.missingInfo },
-            { key: "needs-review" as const, label: "Needs Review", count: readinessCounts.needsReview },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.key
-                ? "border-provision-orange text-provision-orange"
-                : "border-transparent text-provision-gray-text hover:text-provision-charcoal"
-            }`}
-          >
-            {tab.label} ({tab.count})
-          </button>
+      {/* Controls row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        {/* Filter tabs */}
+        <div className="flex gap-1 bg-provision-gray rounded-xl p-1">
+          {filterTabs.map(({ id, label, count }) => (
+            <button
+              key={id}
+              onClick={() => setFilter(id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${
+                filter === id
+                  ? "bg-white text-provision-charcoal shadow-card"
+                  : "text-provision-gray-text hover:text-provision-charcoal"
+              }`}
+            >
+              {label}
+              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                filter === id ? "bg-provision-orange text-white" : "bg-provision-gray-mid text-provision-gray-text"
+              }`}>
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-provision-gray-text uppercase tracking-wide font-semibold">Sort:</span>
+          {(["revenue", "date", "territory"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSortBy(s)}
+              className={`text-xs px-2.5 py-1 rounded-lg font-bold uppercase tracking-wide transition-all ${
+                sortBy === s
+                  ? "bg-provision-charcoal text-white"
+                  : "text-provision-gray-text hover:text-provision-navy"
+              }`}
+            >
+              {s === "date" ? "Start Date" : s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 flex-wrap text-[11px] text-provision-gray-text">
+        <span className="font-bold text-provision-navy uppercase tracking-wide">Prediction confidence:</span>
+        {[
+          { color: "bg-provision-teal", label: "High — based on PM schedule" },
+          { color: "bg-yellow-400",     label: "Medium — open slot" },
+          { color: "bg-gray-300",       label: "Low — no PM assigned" },
+        ].map(({ color, label }) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <span className={`w-2.5 h-2.5 rounded-full ${color}`} />
+            {label}
+          </span>
         ))}
       </div>
 
-      {/* Jobs Table */}
-      <div className="card overflow-hidden">
-        {filteredJobs.length === 0 ? (
-          <div className="p-8 text-center">
-            <AlertCircle className="w-8 h-8 text-provision-gray-mid mx-auto mb-2" />
-            <p className="text-provision-gray-text">No jobs in this category</p>
+      {/* Two-panel layout */}
+      {filtered.length === 0 ? (
+        <div className="card text-center py-12 text-provision-gray-text">
+          <CheckCircle className="w-10 h-10 mx-auto mb-2 text-green-500" />
+          <div className="font-display font-black text-provision-navy uppercase">No jobs in this category</div>
+        </div>
+      ) : (
+        <div className="flex gap-4" style={{ minHeight: 600 }}>
+          {/* LEFT: scrollable job cards */}
+          <div className="flex-1 space-y-3 overflow-y-auto pr-1" style={{ maxHeight: 700 }}>
+            {filtered.map((ej) => (
+              <JobCard
+                key={ej.job.id}
+                ej={ej}
+                isSelected={selectedId === ej.job.id}
+                onSelect={() => setSelectedId(prev => prev === ej.job.id ? null : ej.job.id)}
+              />
+            ))}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-provision-gray-mid bg-provision-charcoal-dark">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white">Job / Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white">Territory</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white">Suggested PM</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-white">Revenue</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-white">Est. Hours</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white">Readiness</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-white">Missing Items</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-white">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredJobs.map((ej) => {
-                  const isExpanded = expandedRows.has(ej.job.id);
-                  const readinessInfo = READINESS_INFO[ej.readiness];
 
-                  return (
-                    <tbody key={ej.job.id}>
-                      <tr className="border-b border-provision-gray-mid hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="space-y-1">
-                            <div className="font-semibold provision-charcoal text-sm">{ej.job.name}</div>
-                            <div className="text-xs text-provision-gray-text">{ej.job.address}</div>
-                            <div className="text-xs text-provision-gray-text">{ej.job.zip}</div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-3 h-3 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: ej.territory.color }}
-                            />
-                            <span className="text-sm font-medium provision-charcoal">{ej.territory.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {ej.topPmSuggestion ? (
-                            <div className="pill text-sm">
-                              <span className="font-medium">{ej.topPmSuggestion.pmName}</span>
-                              <span className="ml-1 text-xs text-provision-gray-text">
-                                {ej.topPmSuggestion.score}%
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-provision-gray-text">No suggestion</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className="text-sm font-semibold provision-orange">
-                            ${(ej.job.value || 0).toLocaleString()}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className="text-sm font-semibold provision-charcoal">
-                            {ej.job.estimatedHours || 0}h
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${readinessInfo.color} ${readinessInfo.bg}`}
-                          >
-                            {readinessInfo.icon}
-                            {readinessInfo.label}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {ej.missingItems.length > 0 || ej.blockingItems.length > 0 ? (
-                            <div className="text-xs">
-                              {ej.blockingItems.length > 0 && (
-                                <div className="text-red-600 font-semibold mb-1">
-                                  {ej.blockingItems[0]}
-                                </div>
-                              )}
-                              {ej.missingItems.length > 0 && (
-                                <div className="text-yellow-600">+{ej.missingItems.length} more</div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-provision-gray-text">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => toggleRowExpanded(ej.job.id)}
-                            className="inline-flex items-center justify-center text-provision-orange hover:bg-provision-orange hover:bg-opacity-10 p-1 rounded transition-colors"
-                          >
-                            <ChevronDown
-                              className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                            />
-                          </button>
-                        </td>
-                      </tr>
-
-                      {/* Expanded Details Row */}
-                      {isExpanded && (
-                        <tr className="border-b border-provision-gray-mid bg-gray-50">
-                          <td colSpan={8} className="px-4 py-4">
-                            <div className="space-y-4">
-                              {/* Job Details */}
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                  <span className="font-semibold provision-charcoal">Project Type:</span>
-                                  <p className="text-provision-gray-text">{ej.job.projectType || "N/A"}</p>
-                                </div>
-                                <div>
-                                  <span className="font-semibold provision-charcoal">Current PM:</span>
-                                  <p className="text-provision-gray-text">{ej.job.pmName || "Unassigned"}</p>
-                                </div>
-                                <div>
-                                  <span className="font-semibold provision-charcoal">Crew:</span>
-                                  <p className="text-provision-gray-text">{ej.job.crew || "Not assigned"}</p>
-                                </div>
-                                <div>
-                                  <span className="font-semibold provision-charcoal">Color Status:</span>
-                                  <p className="text-provision-gray-text">{ej.job.colorStatus || "Not started"}</p>
-                                </div>
-                              </div>
-
-                              {/* Blocking/Missing Items */}
-                              {(ej.blockingItems.length > 0 || ej.missingItems.length > 0) && (
-                                <div className="space-y-2 pt-2 border-t border-provision-gray-mid">
-                                  {ej.blockingItems.length > 0 && (
-                                    <div>
-                                      <p className="text-xs font-semibold text-red-600 mb-1">BLOCKING ITEMS:</p>
-                                      <ul className="space-y-1">
-                                        {ej.blockingItems.map((item, idx) => (
-                                          <li key={idx} className="text-xs text-red-600 flex items-center gap-2">
-                                            <AlertTriangle className="w-3 h-3" />
-                                            {item}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                  {ej.missingItems.length > 0 && (
-                                    <div>
-                                      <p className="text-xs font-semibold text-yellow-600 mb-1">TO-DO ITEMS:</p>
-                                      <ul className="space-y-1">
-                                        {ej.missingItems.map((item, idx) => (
-                                          <li key={idx} className="text-xs text-yellow-600 flex items-center gap-2">
-                                            <AlertCircle className="w-3 h-3" />
-                                            {item}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* All PM Suggestions */}
-                              {ej.pmSuggestions.length > 0 && (
-                                <div className="space-y-2 pt-2 border-t border-provision-gray-mid">
-                                  <p className="text-xs font-semibold provision-charcoal">PM SUGGESTIONS:</p>
-                                  <div className="flex flex-wrap gap-2">
-                                    {ej.pmSuggestions.map((pm, idx) => (
-                                      <div key={idx} className="pill text-xs">
-                                        {pm.pmName} <span className="text-provision-gray-text">({pm.score}%)</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* View Job Action */}
-                              <div className="pt-2 border-t border-provision-gray-mid">
-                                <a
-                                  href={`/pipeline?job=${ej.job.djJobId}`}
-                                  className="inline-flex items-center gap-2 text-sm font-semibold text-provision-orange hover:text-provision-charcoal transition-colors"
-                                >
-                                  View in Pipeline
-                                  <ExternalLink className="w-4 h-4" />
-                                </a>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Legend / Help Section */}
-      <div className="card bg-provision-gray-mid bg-opacity-5 p-4">
-        <h3 className="text-sm font-semibold provision-charcoal mb-3">Readiness Status Guide</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          <div className="flex gap-2">
-            <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-green-600">Ready to Schedule</p>
-              <p className="text-provision-gray-text">All prerequisites met, can be scheduled immediately</p>
+          {/* RIGHT: sticky map */}
+          <div className="flex-shrink-0" style={{ width: 420, position: "sticky", top: 24, height: 700 }}>
+            {/* Map header */}
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Star className="w-3.5 h-3.5 text-provision-orange" />
+                <span className="text-xs font-bold text-provision-navy uppercase tracking-wide">
+                  {mapJobs.length} Jobs on Map
+                </span>
+              </div>
+              {/* Territory legend */}
+              <div className="flex gap-2 flex-wrap justify-end">
+                {territories.filter(t => t.active).map(t => (
+                  <span key={t.id} className="flex items-center gap-1 text-[10px] text-provision-gray-text">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
+                    {t.name.replace(" Expansion", "")}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex gap-2">
-            <AlertTriangle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-yellow-600">Needs Review</p>
-              <p className="text-provision-gray-text">Missing non-critical items, review before scheduling</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-red-600">Blocking Issues</p>
-              <p className="text-provision-gray-text">Critical items missing, cannot schedule yet</p>
-            </div>
+
+            <PendingQueueMap
+              mapJobs={mapJobs}
+              selectedJobId={selectedId}
+              onSelectJob={setSelectedId}
+            />
+
+            {/* Selected job detail panel */}
+            {selectedId && (() => {
+              const sel = filtered.find(e => e.job.id === selectedId);
+              if (!sel) return null;
+              return (
+                <div className="mt-2 card border-l-4 border-provision-orange text-sm space-y-2">
+                  <div className="font-display font-black text-provision-navy uppercase text-[13px]">
+                    {sel.job.name || sel.job.address}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div>
+                      <span className="text-provision-gray-text">PM: </span>
+                      <span className="font-bold text-provision-orange">{sel.topPmSuggestion?.pmName ?? "Unassigned"}</span>
+                    </div>
+                    <div>
+                      <span className="text-provision-gray-text">Score: </span>
+                      <span className="font-bold">{sel.topPmSuggestion?.score ?? 0}%</span>
+                    </div>
+                    <div>
+                      <span className="text-provision-gray-text">Start: </span>
+                      <span className="font-bold text-provision-teal">{sel.prediction.suggestedDateFormatted}</span>
+                    </div>
+                    <div>
+                      <span className="text-provision-gray-text">In: </span>
+                      <span className="font-bold">{sel.prediction.daysFromNow} days</span>
+                    </div>
+                    <div className="col-span-2 text-provision-gray-text italic">{sel.prediction.reason}</div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
