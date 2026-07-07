@@ -170,9 +170,27 @@ export default async function DashboardPage() {
   const totalPipelineValue    = deals.reduce((sum, d) => sum + (d.value || 0), 0);
   const inProgressDeals       = deals.filter((d) => d.stage === "Project In Progress").length;
   const pendingScheduleDeals  = deals.filter((d) => d.stage === "Project Pending Schedule").length;
-  // "Project Scheduled" = booked + confirmed, not yet started (confirmed live in Airtable)
   const scheduledDeals        = deals.filter((d) => d.stage === "Project Scheduled").length;
   const pendingPaymentDeals   = deals.filter((d) => d.stage === "RES Pending Payment").length;
+
+  // Weekly Started Production = jobs whose start date falls in the current week
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
+  weekStart.setHours(0, 0, 0, 0);
+  const weekEnd   = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  const weeklyStartedJobs = jobs.filter((j) => {
+    if (!j.startDate) return false;
+    const d = new Date(j.startDate + "T00:00:00");
+    return d >= weekStart && d <= weekEnd;
+  });
+  const weeklyStartedRevenue = weeklyStartedJobs.reduce((s, j) => s + (j.dealId ? 0 : 0), 0);
+  // Fall back to deal value for weekly started (join through production job's dealId via deals map)
+  const dealValueById = new Map(deals.map(d => [d.id, d.value ?? 0]));
+  const weeklyStartedValue = weeklyStartedJobs.reduce(
+    (s, j) => s + (j.dealId ? (dealValueById.get(j.dealId) ?? 0) : 0),
+    0
+  );
 
   const weeklyTarget = monthGoal?.productionGoal
     ? Math.round(monthGoal.productionGoal / 4.33)
@@ -333,9 +351,9 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-4 gap-4">
         <Kpi
           icon={Briefcase}
-          label="Pipeline value"
-          value={money(totalPipelineValue)}
-          sublabel={`${deals.length} active deals`}
+          label="Weekly Started"
+          value={weeklyStartedJobs.length > 0 ? money(weeklyStartedValue) : `${weeklyStartedJobs.length} jobs`}
+          sublabel={`${weeklyStartedJobs.length} job${weeklyStartedJobs.length !== 1 ? "s" : ""} started this week`}
           accent="orange"
         />
         <Kpi

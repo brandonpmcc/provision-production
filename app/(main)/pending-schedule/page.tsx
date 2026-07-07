@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { getActivePipelineJobs, getTerritoryStats, getPmStats, getCrews } from "@/lib/airtable";
+import { getActivePipelineJobs, getTerritoryStats, getPmStats, getCrews, getPeople } from "@/lib/airtable";
 import { TERRITORIES, getTerritoryByZip, getTerritoryByAddress } from "@/lib/territories";
 import {
   recommendPMsForTerritory,
@@ -18,12 +18,23 @@ function money(n: number) {
 }
 
 export default async function PendingSchedulePage() {
-  const [allJobs, , ,] = await Promise.all([
+  const [allJobs, crews, , , people] = await Promise.all([
     getActivePipelineJobs().catch(() => []),
     getCrews().catch(() => []),
     getTerritoryStats().catch(() => []),
     getPmStats().catch(() => []),
+    getPeople().catch(() => []),
   ]);
+
+  // Build PM list from People table — only PM role
+  const { PM_NAME_TO_RECORD_ID } = await import("@/lib/auth");
+  const pms = people
+    .filter((p) => p.role === "PM" || Object.values(PM_NAME_TO_RECORD_ID).includes(p.id))
+    .map((p) => ({
+      recordId: p.id,
+      name: p.name,
+      email: p.email ?? "",
+    }));
 
   const pendingJobs = (allJobs as PipelineJob[]).filter(
     (j) => j.productionStage === "Pending Schedule"
@@ -86,6 +97,8 @@ export default async function PendingSchedulePage() {
         enrichedJobs={enrichedJobs}
         readinessCounts={readinessCounts}
         territories={Object.values(TERRITORIES).filter(t => t.active)}
+        crews={crews}
+        pms={pms}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { getProductionJobs, getCrews, getMonthlyGoal, getActivePipelineJobs, getPmStats } from "@/lib/airtable";
+import { getProductionJobs, getCrews, getMonthlyGoal, getActivePipelineJobs, getPmStats, getPeople } from "@/lib/airtable";
 import { TERRITORIES, getTerritoryByZip, getTerritoryByAddress } from "@/lib/territories";
 import { recommendPMsForTerritory, determineSchedulingReadiness, predictStartDate } from "@/lib/recommend";
 import { ScheduleBoard } from "@/components/ScheduleBoard";
@@ -59,10 +59,16 @@ export default async function SchedulePage({
     : null;
 
   // ── Queue tab data ─────────────────────────────────────────────────────────
-  const [allJobs, pmStats] = await Promise.all([
+  const [allJobs, pmStats, people] = await Promise.all([
     getActivePipelineJobs().catch(() => []),
     getPmStats().catch(() => []),
+    getPeople().catch(() => []),
   ]);
+
+  const { PM_NAME_TO_RECORD_ID } = await import("@/lib/auth");
+  const pms = people
+    .filter((p) => p.role === "PM" || Object.values(PM_NAME_TO_RECORD_ID).includes(p.id))
+    .map((p) => ({ recordId: p.id, name: p.name, email: p.email ?? "" }));
 
   const pendingJobs = allJobs.filter((j: PipelineJob) => j.productionStage === "Pending Schedule");
 
@@ -115,6 +121,8 @@ export default async function SchedulePage({
             needsReview: enrichedJobs.filter(e => e.readiness === "needs-review").length,
           }}
           territories={Object.values(TERRITORIES).filter(t => t.id !== "unknown")}
+          crews={crews}
+          pms={pms}
         />
       )}
 

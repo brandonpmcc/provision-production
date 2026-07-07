@@ -528,6 +528,60 @@ export async function createProductionJob(
   return created[0].id;
 }
 
+
+/**
+ * Schedule a job from the Pending Queue.
+ * Creates a Production record in Airtable and advances the Deal to "Project Scheduled".
+ */
+export async function scheduleJob(params: {
+  customerName: string;
+  dealId: string;
+  pmRecordId: string | null;
+  crewName: string;
+  startDate: string;
+  endDate: string;
+  budgetedHours: number | null;
+  materialBudget: number | null;
+  notes: string | null;
+}): Promise<string> {
+  const { customerName, dealId, pmRecordId, crewName, startDate, endDate, budgetedHours, materialBudget, notes } = params;
+
+  // 1. Create Production record with initial "Needs Confirmation" stage
+  const fields: Record<string, unknown> = {
+    "Job":              customerName,
+    "Deal":             [{ id: dealId }],
+    "Production Stage": "Needs Confirmation",
+    "Crew":             crewName,
+    "Start Date":       startDate,
+    "End Date":         endDate,
+  };
+  if (pmRecordId) fields["PM"] = [{ id: pmRecordId }];
+  if (notes)      fields["Notes"] = notes;
+
+  const created = await createRecords(TABLES.production, [{ fields }]);
+  const productionId = created[0].id;
+
+  // 2. Update Deal — advance to "Project Scheduled" and write budget fields
+  const dealFields: Record<string, unknown> = { "Current Stage": "Project Scheduled" };
+  if (budgetedHours  != null) dealFields["Budgeted Hours"]     = budgetedHours;
+  if (materialBudget != null) dealFields["Target LM Material"] = materialBudget;
+  await patchRecord(TABLES.deals, dealId, dealFields);
+
+  return productionId;
+}
+
+/** Update a Deal's stage and optional budget fields */
+export async function updateDealStage(
+  dealId: string,
+  stage: string,
+  extras?: { budgetedHours?: number; materialBudget?: number }
+): Promise<void> {
+  const fields: Record<string, unknown> = { "Current Stage": stage };
+  if (extras?.budgetedHours  != null) fields["Budgeted Hours"]     = extras.budgetedHours;
+  if (extras?.materialBudget != null) fields["Target LM Material"] = extras.materialBudget;
+  await patchRecord(TABLES.deals, dealId, fields);
+}
+
 // ─── Monthly goals ────────────────────────────────────────────────────────────
 
 function mapGoal(r: AirtableRecord, fallbackMonth = 0, fallbackYear = 0): MonthlyGoal {

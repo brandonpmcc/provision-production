@@ -1,17 +1,20 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { PipelineJob, SchedulingReadiness } from "@/lib/types";
+import type { PipelineJob, SchedulingReadiness, Crew } from "@/lib/types";
 import type { Territory } from "@/lib/territories";
 import type { StartDatePrediction } from "@/lib/recommend";
 import { PendingQueueMap, getJobCoords, type MapJob } from "./PendingQueueMap";
+import { ScheduleJobDrawer } from "./ScheduleJobDrawer";
 import {
   CheckCircle, AlertTriangle, AlertCircle, Package,
   MapPin, DollarSign, Clock, User, CalendarDays,
-  ChevronRight, Star,
+  Star, CalendarPlus,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+interface PM { recordId: string; name: string; email: string; }
 
 interface EnrichedJob {
   job: PipelineJob;
@@ -19,7 +22,7 @@ interface EnrichedJob {
   readiness: SchedulingReadiness;
   missingItems: string[];
   blockingItems: string[];
-  topPmSuggestion: { pmName: string; score: number; reasons?: string[]; warnings?: string[] } | null;
+  topPmSuggestion: { pmName: string; score: number; pmRecordId?: string; reasons?: string[]; warnings?: string[] } | null;
   pmSuggestions: Array<{ pmName: string; score: number }>;
   prediction: StartDatePrediction;
 }
@@ -33,6 +36,8 @@ interface PendingScheduleClientProps {
     needsReview: number;
   };
   territories: Territory[];
+  crews: Crew[];
+  pms: PM[];
 }
 
 // ─── Readiness config ────────────────────────────────────────────────────────
@@ -75,18 +80,19 @@ function JobCard({
   ej,
   isSelected,
   onSelect,
+  onSchedule,
 }: {
   ej: EnrichedJob;
   isSelected: boolean;
   onSelect: () => void;
+  onSchedule: () => void;
 }) {
   const r = READINESS[ej.readiness] ?? READINESS["needs-review"];
   const pm = ej.topPmSuggestion;
   const pred = ej.prediction;
 
   return (
-    <button
-      onClick={onSelect}
+    <div
       className={`w-full text-left rounded-xl border-2 transition-all duration-150 p-4 space-y-3 ${
         isSelected
           ? "border-provision-orange shadow-card-orange bg-white"
@@ -209,7 +215,16 @@ function JobCard({
           ))}
         </div>
       )}
-    </button>
+
+      {/* Schedule button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onSchedule(); }}
+        className="w-full flex items-center justify-center gap-2 bg-provision-orange text-white font-bold text-xs uppercase tracking-wide py-2.5 rounded-lg hover:bg-provision-orange-dark active:scale-95 transition-all"
+      >
+        <CalendarPlus className="w-3.5 h-3.5" />
+        Schedule This Job
+      </button>
+    </div>
   );
 }
 
@@ -223,14 +238,18 @@ export function PendingScheduleClient({
   enrichedJobs,
   readinessCounts,
   territories,
+  crews,
+  pms,
 }: PendingScheduleClientProps) {
-  const [filter, setFilter]   = useState<FilterTab>("all");
+  const [filter, setFilter]       = useState<FilterTab>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [sortBy, setSortBy]   = useState<"revenue" | "date" | "territory">("revenue");
+  const [sortBy, setSortBy]       = useState<"revenue" | "date" | "territory">("revenue");
+  const [drawerJob, setDrawerJob] = useState<EnrichedJob | null>(null);
+  const [scheduledIds, setScheduledIds] = useState<Set<string>>(new Set());
 
-  // Build filtered + sorted job list
+  // Build filtered + sorted job list (exclude already-scheduled jobs)
   const filtered = useMemo(() => {
-    let list = enrichedJobs;
+    let list = enrichedJobs.filter(e => !scheduledIds.has(e.job.id));
     if (filter === "ready")      list = list.filter(e => e.readiness === "ready");
     if (filter === "needs-info") list = list.filter(e => e.blockingItems.length > 0);
     if (filter === "review")     list = list.filter(e => e.readiness === "needs-review" || e.missingItems.length > 0);
@@ -343,6 +362,7 @@ export function PendingScheduleClient({
                 ej={ej}
                 isSelected={selectedId === ej.job.id}
                 onSelect={() => setSelectedId(prev => prev === ej.job.id ? null : ej.job.id)}
+                onSchedule={() => setDrawerJob(ej)}
               />
             ))}
           </div>
@@ -407,6 +427,23 @@ export function PendingScheduleClient({
             })()}
           </div>
         </div>
+      )}
+
+      {/* Schedule drawer */}
+      {drawerJob && (
+        <ScheduleJobDrawer
+          job={drawerJob.job}
+          territory={drawerJob.territory}
+          suggestedPm={drawerJob.topPmSuggestion}
+          prediction={drawerJob.prediction}
+          crews={crews}
+          pms={pms}
+          onClose={() => setDrawerJob(null)}
+          onScheduled={(jobId) => {
+            setScheduledIds(prev => new Set([...prev, jobId]));
+            setDrawerJob(null);
+          }}
+        />
       )}
     </div>
   );
