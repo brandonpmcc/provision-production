@@ -6,10 +6,16 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard,
-  CalendarRange,
+  Clock,
   Kanban,
+  CalendarRange,
   Map,
+  BarChart2,
+  Globe,
   Users,
+  Star,
+  Package,
+  Bell,
   Settings,
   LogOut,
   type LucideIcon,
@@ -20,21 +26,34 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   matchPrefix?: string;
+  group?: string;
 }
 
 const NAV_ALL: NavItem[] = [
-  { href: "/",         label: "Dashboard", icon: LayoutDashboard },
-  { href: "/schedule", label: "Schedule",  icon: CalendarRange,  matchPrefix: "/schedule" },
-  { href: "/pipeline", label: "Pipeline",  icon: Kanban,         matchPrefix: "/pipeline" },
-  { href: "/map",      label: "Map",       icon: Map,            matchPrefix: "/map" },
-  { href: "/team",     label: "Team",      icon: Users,          matchPrefix: "/team" },
-  { href: "/settings", label: "Settings",  icon: Settings,       matchPrefix: "/settings" },
+  // Core
+  { href: "/",                 label: "Dashboard",      icon: LayoutDashboard },
+  { href: "/pending-schedule", label: "Pending Queue",  icon: Clock,         matchPrefix: "/pending-schedule", group: "Schedule" },
+  { href: "/pipeline",         label: "Pipeline",       icon: Kanban,        matchPrefix: "/pipeline",         group: "Schedule" },
+  { href: "/schedule",         label: "Calendar",       icon: CalendarRange, matchPrefix: "/schedule",         group: "Schedule" },
+  // Geographic
+  { href: "/map",              label: "Map",            icon: Map,           matchPrefix: "/map",              group: "Jobs" },
+  { href: "/territories",      label: "Territories",    icon: Globe,         matchPrefix: "/territories",      group: "Jobs" },
+  // Team
+  { href: "/team",             label: "Team",           icon: Users,         matchPrefix: "/team",             group: "Team" },
+  { href: "/crews",            label: "Crew Health",    icon: Star,          matchPrefix: "/crews",            group: "Team" },
+  { href: "/capacity",         label: "Capacity",       icon: BarChart2,     matchPrefix: "/capacity",         group: "Team" },
+  // Operations
+  { href: "/materials",        label: "Materials",      icon: Package,       matchPrefix: "/materials",        group: "Ops" },
+  { href: "/reminders",        label: "Reminders",      icon: Bell,          matchPrefix: "/reminders",        group: "Ops" },
+  { href: "/settings",         label: "Settings",       icon: Settings,      matchPrefix: "/settings" },
 ];
 
 const NAV_PM: NavItem[] = [
-  { href: "/",         label: "Dashboard", icon: LayoutDashboard },
-  { href: "/schedule", label: "Schedule",  icon: CalendarRange,  matchPrefix: "/schedule" },
-  { href: "/pipeline", label: "Pipeline",  icon: Kanban,         matchPrefix: "/pipeline" },
+  { href: "/",                 label: "Dashboard",      icon: LayoutDashboard },
+  { href: "/pending-schedule", label: "Pending Queue",  icon: Clock,         matchPrefix: "/pending-schedule" },
+  { href: "/pipeline",         label: "Pipeline",       icon: Kanban,        matchPrefix: "/pipeline" },
+  { href: "/schedule",         label: "Calendar",       icon: CalendarRange, matchPrefix: "/schedule" },
+  { href: "/reminders",        label: "Reminders",      icon: Bell,          matchPrefix: "/reminders" },
 ];
 
 function initials(name?: string | null): string {
@@ -90,23 +109,31 @@ export function Sidebar() {
       </div>
 
       {/* ── Navigation ──────────────────────────────────────────── */}
-      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {nav.map((item) => {
-          const { href, label, icon: Icon } = item;
+      <nav className="flex-1 px-2 py-2 overflow-y-auto">
+        {nav.map((item, i) => {
+          const { href, label, icon: Icon, group } = item;
           const active = isActive(item);
+          // Show group label when this item starts a new group
+          const prevGroup = i > 0 ? nav[i - 1].group : undefined;
+          const showGroupLabel = group && group !== prevGroup;
           return (
+            <div key={href}>
+              {showGroupLabel && (
+                <div className="px-3 pt-3 pb-1 text-[9px] font-bold uppercase tracking-widest text-white/20">
+                  {group}
+                </div>
+              )}
             <Link
-              key={href}
               href={href}
               className={`
-                group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all duration-100
+                group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-100 mb-0.5
                 ${active
                   ? "bg-white/[0.08] text-white"
                   : "text-white/50 hover:text-white hover:bg-white/[0.05]"
                 }
               `}
             >
-              {/* Active indicator — orange left bar (like website's active state) */}
+              {/* Active indicator — orange left bar */}
               {active && (
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-provision-orange rounded-r-full" />
               )}
@@ -118,6 +145,7 @@ export function Sidebar() {
               />
               <span className="flex-1 truncate uppercase tracking-wide text-[11px]">{label}</span>
             </Link>
+            </div>
           );
         })}
       </nav>
