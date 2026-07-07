@@ -582,6 +582,79 @@ export async function updateDealStage(
   await patchRecord(TABLES.deals, dealId, fields);
 }
 
+
+// ─── Completed jobs / Invoice review ─────────────────────────────────────────
+
+export interface CompletedJobReview {
+  id: string;
+  name: string;
+  stage: string;
+  value: number | null;
+  invoicedTotal: number | null;
+  openBalance: number | null;
+  collectedInFull: boolean;
+  pmId: string | null;
+  zip: string;
+  /** True = needs someone to look at it */
+  needsReview: boolean;
+  reviewReason: string;
+}
+
+/**
+ * Fetch completed and pending-payment deals and flag ones that need invoice review.
+ * Flags:
+ *  - Open balance > 0
+ *  - Invoiced total is null/zero on a completed job
+ *  - Stage is "Project Complete" but not collected in full
+ */
+export async function getCompletedJobsNeedingReview(): Promise<CompletedJobReview[]> {
+  const records = await fetchAll(TABLES.deals, {
+    filterByFormula: `OR({Current Stage}='Project Complete',{Current Stage}='RES Pending Payment',{Current Stage}='Touch Up Needed')`,
+    maxRecords: 200,
+    fields: [
+      "Deal Name", "Current Stage", "Value: Deal",
+      "Invoiced Total", "Open Balance", "Collected In Full",
+      "PM", "Deal Zip",
+    ],
+  });
+
+  return records.map((r) => {
+    const openBalance    = pickNumber(r.fields["Open Balance"]);
+    const invoicedTotal  = pickNumber(r.fields["Invoiced Total"]);
+    const collectedInFull = !!(r.fields["Collected In Full"]);
+    const value          = pickNumber(r.fields["Value: Deal"]);
+    const stage          = pickName(r.fields["Current Stage"]) ?? "";
+
+    let needsReview = false;
+    let reviewReason = "";
+
+    if (openBalance && openBalance > 50) {
+      needsReview = true;
+      reviewReason = `Open balance: $${openBalance.toLocaleString()}`;
+    } else if (!invoicedTotal || invoicedTotal === 0) {
+      needsReview = true;
+      reviewReason = "No invoice recorded";
+    } else if (stage === "Project Complete" && !collectedInFull) {
+      needsReview = true;
+      reviewReason = "Invoice unpaid / not collected in full";
+    }
+
+    return {
+      id: r.id,
+      name: pickString(r.fields["Deal Name"]) || "(no name)",
+      stage,
+      value,
+      invoicedTotal,
+      openBalance,
+      collectedInFull,
+      pmId: pickFirstLink(r.fields["PM"]),
+      zip: pickString(r.fields["Deal Zip"]) ?? "",
+      needsReview,
+      reviewReason,
+    };
+  });
+}
+
 // ─── Monthly goals ────────────────────────────────────────────────────────────
 
 function mapGoal(r: AirtableRecord, fallbackMonth = 0, fallbackYear = 0): MonthlyGoal {
@@ -669,6 +742,23 @@ export async function getActivePipelineJobs(): Promise<PipelineJob[]> {
   for (const dj of djJobs) {
     const prod = dj.dealId ? prodJobByDealId.get(dj.dealId) : null;
 
+    // ── Infer production stage from DripJobs data when no Production record exists ──
+    // This makes the pipeline reflect real Airtable/DripJobs data even before
+    // Miriam creates Production records through the scheduling flow.
+    let inferredStage: ProductionStage = "Pending Schedule";
+    if (!prod) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (dj.djStage === "Scheduled") {
+        // DJ "Scheduled" = the job has been won and is on the books
+        // Default to Scheduled (no start date on DJ Jobs — that lives in Production records)
+        inferredStage = "Scheduled";
+      } else if (dj.djStage === "Pending" || dj.djStage === "Accepted") {
+        inferredStage = "Pending Schedule";
+      }
+    }
+
     // Build pipeline job
     const job: PipelineJob = {
       id: prod?.id || dj.id,
@@ -685,7 +775,8 @@ export async function getActivePipelineJobs(): Promise<PipelineJob[]> {
       estimatedHours: dj.estLaborHours,
       pmName: dj.pmName,
       pmId: dj.pmId,
-      productionStage: (prod?.stage ?? "Pending Schedule") as ProductionStage,
+      // Use Production record stage if it exists, otherwise infer from DripJobs
+      productionStage: (prod?.stage ?? inferredStage) as ProductionStage,
       crew: prod?.crew ?? null,
       crew2: prod?.crew2 ?? null,
       startDate: prod?.startDate ?? null,

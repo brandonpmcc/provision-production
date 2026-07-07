@@ -85,8 +85,8 @@ export default async function CrewRegistryPage({
 
             return (
               <div key={email} className="card hover:shadow-card-hover transition-all group">
-                {/* Color bar + name */}
-                <div className="flex items-start gap-3 mb-3">
+                {/* Color bar + name — click to open profile */}
+                <Link href={`/crews/${login.token}`} className="flex items-start gap-3 mb-3 hover:opacity-80 transition-opacity">
                   <div
                     className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center"
                     style={{ backgroundColor: color + "22", border: `2px solid ${color}` }}
@@ -108,7 +108,7 @@ export default async function CrewRegistryPage({
                       )}
                     </div>
                   </div>
-                </div>
+                </Link>
 
                 {/* Portal link */}
                 <a

@@ -18,6 +18,7 @@ import {
   Bell,
   Settings,
   HardHat,
+  FileWarning,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
@@ -44,6 +45,7 @@ const NAV_ALL: NavItem[] = [
   { href: "/crews",            label: "Crew Portal",    icon: HardHat,       matchPrefix: "/crews",            group: "Team" },
   { href: "/capacity",         label: "Capacity",       icon: BarChart2,     matchPrefix: "/capacity",         group: "Team" },
   // Operations
+  { href: "/invoices",         label: "Invoice Review", icon: FileWarning,   matchPrefix: "/invoices",         group: "Ops" },
   { href: "/materials",        label: "Materials",      icon: Package,       matchPrefix: "/materials",        group: "Ops" },
   { href: "/reminders",        label: "Reminders",      icon: Bell,          matchPrefix: "/reminders",        group: "Ops" },
   { href: "/settings",         label: "Settings",       icon: Settings,      matchPrefix: "/settings" },

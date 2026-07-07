@@ -7,6 +7,7 @@ import {
   getCrews,
   getMonthlyGoal,
   getMonthlyGoals,
+  getCompletedJobsNeedingReview,
 } from "@/lib/airtable";
 import type { ProductionJob } from "@/lib/types";
 import {
@@ -159,13 +160,16 @@ export default async function DashboardPage() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const [deals, jobs, crews, monthGoal, yearGoals] = await Promise.all([
+  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview] = await Promise.all([
     getProductionDeals().catch(() => []),
     getProductionJobs().catch(() => []),
     getCrews().catch(() => []),
     getMonthlyGoal(year, month).catch(() => null),
     getMonthlyGoals(year).catch(() => []),
+    getCompletedJobsNeedingReview().catch(() => []),
   ]);
+
+  const invoiceFlagged = invoiceReview.filter(j => j.needsReview);
 
   const totalPipelineValue    = deals.reduce((sum, d) => sum + (d.value || 0), 0);
   const inProgressDeals       = deals.filter((d) => d.stage === "Project In Progress").length;
@@ -220,6 +224,20 @@ export default async function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Invoice alert banner ─────────────────────────────────────── */}
+      {invoiceFlagged.length > 0 && (
+        <a href="/invoices" className="block rounded-xl border-2 border-red-400 bg-red-50 px-5 py-3 flex items-center gap-3 hover:bg-red-100 transition-colors">
+          <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div className="flex-1">
+            <span className="font-display font-black text-red-700 uppercase tracking-wide text-sm">
+              {invoiceFlagged.length} completed job{invoiceFlagged.length !== 1 ? "s" : ""} need invoice review
+            </span>
+            <span className="text-red-500 text-xs ml-2">— open balances or missing invoices</span>
+          </div>
+          <span className="text-red-500 text-xs font-bold uppercase tracking-wide flex-shrink-0">View →</span>
+        </a>
+      )}
 
       {/* ── Manager metrics strip ─────────────────────────────────────── */}
       {isManager && (
