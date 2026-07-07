@@ -257,30 +257,73 @@ export async function getDJActiveJobs(): Promise<DJActiveJob[]> {
     for (const d of dealRecords) dealMap.set(d.id, d);
   }
 
+  // Collect Customer IDs for contact enrichment
+  const customerIdSet = new Set<string>();
+  for (const r of djRecords) {
+    const cid = pickString(r.fields["Customer ID"]);
+    if (cid) customerIdSet.add(cid);
+  }
+
+  // Batch-fetch Contacts by DripJobs Customer ID to get phone/email
+  const contactMap = new Map<string, { name: string; phone: string | null; email: string | null }>();
+  const customerIds = [...customerIdSet];
+  const CID_CHUNK = 80;
+  for (let i = 0; i < customerIds.length; i += CID_CHUNK) {
+    const chunk = customerIds.slice(i, i + CID_CHUNK);
+    const formula =
+      chunk.length === 1
+        ? `{DripJobs Customer ID}="${chunk[0]}"`
+        : `OR(${chunk.map((id) => `{DripJobs Customer ID}="${id}"`).join(",")})`;
+    const contactRecords = await fetchAll(TABLES.contacts, {
+      filterByFormula: formula,
+      fields: ["Contact Name", "Phone", "Email", "DripJobs Customer ID"],
+      maxRecords: CID_CHUNK,
+    }).catch(() => []);
+    for (const c of contactRecords) {
+      const cid = pickString(c.fields["DripJobs Customer ID"]);
+      if (cid) {
+        contactMap.set(cid, {
+          name:  pickString(c.fields["Contact Name"]) || "",
+          phone: pickString(c.fields["Phone"]),
+          email: pickString(c.fields["Email"]),
+        });
+      }
+    }
+  }
+
   return djRecords.map((r) => {
-    const djAddress = pickString(r.fields["Address"]) || "";
-    const pmName    = pickString(r.fields["Project Manager"]);
-    const dealLinks = r.fields["Deal"];
-    const dealId    = Array.isArray(dealLinks) && dealLinks.length > 0 ? String(dealLinks[0]) : null;
-    const deal      = dealId ? dealMap.get(dealId) : null;
-    const address   = (deal ? pickString(deal.fields["Deal Address"]) : null) || djAddress;
+    const djAddress  = pickString(r.fields["Address"]) || "";
+    const pmName     = pickString(r.fields["Project Manager"]);
+    const dealLinks  = r.fields["Deal"];
+    const dealId     = Array.isArray(dealLinks) && dealLinks.length > 0 ? String(dealLinks[0]) : null;
+    const deal       = dealId ? dealMap.get(dealId) : null;
+    const address    = (deal ? pickString(deal.fields["Deal Address"]) : null) || djAddress;
+    const customerId = pickString(r.fields["Customer ID"]);
+    const contact    = customerId ? contactMap.get(customerId) : null;
 
     return {
-      id:           r.id,
-      jobId:        pickString(r.fields["Job ID"]),
-      customer:     pickString(r.fields["Customer"]) || "(unknown)",
+      id:             r.id,
+      jobId:          pickString(r.fields["Job ID"]),
+      customer:       pickString(r.fields["Customer"]) || "(unknown)",
       address,
-      zip:          (deal ? pickString(deal.fields["Deal Zip"]) : null) || parseZipFromAddress(djAddress),
-      city:         (deal ? pickString(deal.fields["Deal City"]) : null) || parseCityFromAddress(djAddress),
-      state:        (deal ? pickString(deal.fields["Deal State"]) : null) || "",
-      projectType:  deal ? pickName(deal.fields["Project Type"]) : null,
+      zip:            (deal ? pickString(deal.fields["Deal Zip"]) : null) || parseZipFromAddress(djAddress),
+      city:           (deal ? pickString(deal.fields["Deal City"]) : null) || parseCityFromAddress(djAddress),
+      state:          (deal ? pickString(deal.fields["Deal State"]) : null) || "",
+      projectType:    deal ? pickName(deal.fields["Project Type"]) : null,
       pmName,
-      pmId:         pmRecordIdByName(pmName),
-      revenue:      pickNumber(r.fields["Revenue"]),
-      estLaborHours:pickNumber(r.fields["Est Labor Hours"]),
-      djStage:      pickString(r.fields["Job Stage"]),
+      pmId:           pmRecordIdByName(pmName),
+      revenue:        pickNumber(r.fields["Revenue"]),
+      estLaborHours:  pickNumber(r.fields["Est Labor Hours"]),
+      estLaborCost:   pickNumber(r.fields["Est Labor Cost"]),
+      estMaterials:   pickNumber(r.fields["Est Materials"]),
+      djStage:        pickString(r.fields["Job Stage"]),
       dealId,
-      scrapedAt:    pickString(r.fields["Scraped At"]),
+      customerId:     customerId || null,
+      scrapedAt:      pickString(r.fields["Scraped At"]),
+      // Contact enrichment from Contacts table via Customer ID
+      customerPhone:       contact?.phone ?? null,
+      customerEmail:       contact?.email ?? null,
+      customerContactName: contact?.name ?? null,
     };
   });
 }
@@ -772,9 +815,15 @@ export async function getActivePipelineJobs(): Promise<PipelineJob[]> {
       state: dj.state,
       projectType: dj.projectType,
       value: dj.revenue,
-      estimatedHours: dj.estLaborHours,
+      estimatedHours:      dj.estLaborHours,
+      estimatedLaborCost:  dj.estLaborCost,
+      estimatedMaterials:  dj.estMaterials,
       pmName: dj.pmName,
-      pmId: dj.pmId,
+      pmId:   dj.pmId,
+      // Contact info enriched from Contacts table via DripJobs Customer ID
+      customerPhone:       dj.customerPhone,
+      customerEmail:       dj.customerEmail,
+      customerContactName: dj.customerContactName,
       // Use Production record stage if it exists, otherwise infer from DripJobs
       productionStage: (prod?.stage ?? inferredStage) as ProductionStage,
       crew: prod?.crew ?? null,

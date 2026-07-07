@@ -157,6 +157,22 @@ export function PipelineBoard({ jobs, crews, role }: Props) {
                           {j.city ? ` · ${j.city}` : j.zip ? ` · ${j.zip}` : ""}
                         </div>
 
+                        {/* Budget breakdown */}
+                        {(j.estimatedLaborCost || j.estimatedMaterials) && (
+                          <div className="text-provision-gray-text mt-0.5 truncate text-[10px]">
+                            {j.estimatedLaborCost ? `Labor: ${money(j.estimatedLaborCost)}` : ""}
+                            {j.estimatedLaborCost && j.estimatedMaterials ? " · " : ""}
+                            {j.estimatedMaterials ? `Mat: ${money(j.estimatedMaterials)}` : ""}
+                          </div>
+                        )}
+
+                        {/* Customer contact */}
+                        {j.customerPhone && (
+                          <div className="text-provision-teal mt-0.5 truncate text-[10px] font-semibold">
+                            📞 {j.customerPhone}
+                          </div>
+                        )}
+
                         {/* Project type */}
                         {j.projectType && (
                           <div className="text-provision-gray-text mt-0.5 truncate">

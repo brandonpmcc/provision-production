@@ -169,9 +169,16 @@ export interface DJActiveJob {
   pmId: string | null;   // Airtable People record ID (derived from pmName)
   revenue: number | null;
   estLaborHours: number | null;
-  djStage: string | null; // "Scheduled" | "Pending"
+  estLaborCost: number | null;   // Estimated labor cost from DripJobs
+  estMaterials: number | null;   // Estimated material cost from DripJobs
+  djStage: string | null; // "Scheduled" | "Pending" | "Accepted"
   dealId: string | null;  // linked Airtable Deal record ID (if matched)
+  customerId: string | null;       // DripJobs Customer ID — used to look up contact info
   scrapedAt: string | null;
+  // Enriched from Contacts table via Customer ID match
+  customerPhone: string | null;
+  customerEmail: string | null;
+  customerContactName: string | null;
 }
 
 /**
@@ -206,7 +213,7 @@ export interface PipelineJob {
   dealId: string | null;
   isActivated: boolean;   // true if a Production record exists
 
-  // Customer info (from DJ Job + linked Deal)
+  // Customer info (from DJ Job + linked Deal + Contacts)
   name: string;
   address: string;
   zip: string;
@@ -215,8 +222,14 @@ export interface PipelineJob {
   projectType: string | null;
   value: number | null;
   estimatedHours: number | null;
+  estimatedLaborCost: number | null;   // From DripJobs Est Labor Cost
+  estimatedMaterials: number | null;   // From DripJobs Est Materials
   pmName: string | null;
   pmId: string | null;
+  // Contact enrichment — phone/email from Contacts table via Customer ID match
+  customerPhone: string | null;
+  customerEmail: string | null;
+  customerContactName: string | null;
 
   // Production pipeline state (from Production record, defaults if not activated)
   productionStage: ProductionStage;

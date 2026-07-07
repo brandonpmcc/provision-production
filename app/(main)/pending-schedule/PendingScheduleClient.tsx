@@ -180,25 +180,42 @@ function JobCard({
         </div>
       </div>
 
-      {/* Row 3: Revenue + hours + readiness + type */}
+      {/* Row 3: Budget details */}
+      <div className="grid grid-cols-3 gap-2 text-center">
+        {[
+          { label: "Job Value",   val: money(ej.job.value),                   accent: true },
+          { label: "Labor Est",   val: money(ej.job.estimatedLaborCost),      accent: false },
+          { label: "Materials",   val: money(ej.job.estimatedMaterials),      accent: false },
+        ].map(({ label, val, accent }) => (
+          <div key={label} className={`rounded-lg px-2 py-1.5 ${accent ? "bg-provision-orange-light" : "bg-provision-gray"}`}>
+            <div className="text-[9px] font-bold uppercase tracking-wide text-provision-gray-muted">{label}</div>
+            <div className={`font-display font-black text-[13px] ${accent ? "text-provision-orange" : "text-provision-navy"}`}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Row 4: Customer contact + type + readiness */}
       <div className="flex items-center gap-2 flex-wrap">
-        {ej.job.value && (
-          <span className="flex items-center gap-1 text-xs font-bold text-provision-navy">
-            <DollarSign className="w-3 h-3 text-provision-orange" />
-            {money(ej.job.value)}
-          </span>
+        {ej.job.customerPhone && (
+          <a href={`tel:${ej.job.customerPhone}`} onClick={e => e.stopPropagation()}
+            className="flex items-center gap-1 text-xs font-semibold text-provision-teal hover:underline">
+            📞 {ej.job.customerPhone}
+          </a>
+        )}
+        {ej.job.customerEmail && (
+          <a href={`mailto:${ej.job.customerEmail}`} onClick={e => e.stopPropagation()}
+            className="text-xs text-provision-gray-text hover:underline truncate">
+            ✉ {ej.job.customerEmail}
+          </a>
         )}
         {ej.job.estimatedHours && (
-          <span className="flex items-center gap-1 text-xs text-provision-gray-text">
+          <span className="flex items-center gap-1 text-xs text-provision-gray-text ml-auto">
             <Clock className="w-3 h-3" />
             {ej.job.estimatedHours}h
           </span>
         )}
-        {ej.job.projectType && (
-          <span className="text-xs text-provision-gray-text">{ej.job.projectType}</span>
-        )}
         {/* Readiness badge */}
-        <span className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${r.color} ${r.bg}`}>
+        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${r.color} ${r.bg}`}>
           {r.icon}
           {r.label}
         </span>
