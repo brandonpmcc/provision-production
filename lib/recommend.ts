@@ -170,15 +170,14 @@ export function recommendCrews(
 // ─── PM recommendation ────────────────────────────────────────────────────
 
 /**
- * Known PMs and their Airtable People record IDs.
- * Colin Colby left — removed.
- * Ali added as placeholder — update name/recordId once confirmed.
+ * Known active PMs and their Airtable People record IDs.
+ * Confirmed from live DJ Jobs data — Ali's full DripJobs name is "Ali Ubeda Jr".
+ * Colin Colby left the company but still has jobs in DripJobs — excluded from recommendations.
  */
 const PM_ROSTER = [
   { name: "Nico Lawler",     recordId: "recIWuHhrhcJvOCIM" },
   { name: "Tyler Grodivant", recordId: "recsAsvt9rVtOdN7w" },
-  // TODO: update Ali's full DripJobs name and Airtable record ID
-  { name: "Ali",             recordId: "recAliPlaceholder0001" },
+  { name: "Ali Ubeda Jr",    recordId: "recAliPlaceholder0001" }, // TODO: confirm real People record ID
 ];
 
 export interface PMRecommendation {

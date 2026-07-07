@@ -106,8 +106,12 @@ const PM_RECORD_IDS: Record<string, string> = {
 export const PM_NAME_TO_RECORD_ID: Record<string, string> = {
   "Nico Lawler":     "recIWuHhrhcJvOCIM",
   "Tyler Grodivant": "recsAsvt9rVtOdN7w",
-  // TODO: update Ali's DripJobs full name when confirmed
-  "Ali":             "recAliPlaceholder0001",
+  // Ali's full name as it appears in DripJobs — confirmed from live DJ Jobs data
+  "Ali Ubeda Jr":    "recAliPlaceholder0001",  // TODO: confirm Ali's real Airtable People record ID
+  // Colin Colby left the company but still has active jobs in DripJobs
+  "Colin Colby":     "recBDt9RI3r4k4H7e",
+  // Jacob Wright appears in DJ Jobs as PM on some older records
+  "Jacob Wright":    "reco9oLBCchHcTW1u",
 };
 
 export function pmRecordId(email: string | undefined | null): string | null {

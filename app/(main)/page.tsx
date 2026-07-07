@@ -167,9 +167,12 @@ export default async function DashboardPage() {
     getMonthlyGoals(year).catch(() => []),
   ]);
 
-  const totalPipelineValue = deals.reduce((sum, d) => sum + (d.value || 0), 0);
-  const inProgressDeals = deals.filter((d) => d.stage === "Project In Progress").length;
-  const pendingScheduleDeals = deals.filter((d) => d.stage === "Project Pending Schedule").length;
+  const totalPipelineValue    = deals.reduce((sum, d) => sum + (d.value || 0), 0);
+  const inProgressDeals       = deals.filter((d) => d.stage === "Project In Progress").length;
+  const pendingScheduleDeals  = deals.filter((d) => d.stage === "Project Pending Schedule").length;
+  // "Project Scheduled" = booked + confirmed, not yet started (confirmed live in Airtable)
+  const scheduledDeals        = deals.filter((d) => d.stage === "Project Scheduled").length;
+  const pendingPaymentDeals   = deals.filter((d) => d.stage === "RES Pending Payment").length;
 
   const weeklyTarget = monthGoal?.productionGoal
     ? Math.round(monthGoal.productionGoal / 4.33)
@@ -344,9 +347,9 @@ export default async function DashboardPage() {
         />
         <Kpi
           icon={DollarSign}
-          label="In progress"
+          label="In Progress"
           value={`${inProgressDeals}`}
-          sublabel={`${pendingScheduleDeals} awaiting schedule`}
+          sublabel={`${scheduledDeals} scheduled · ${pendingScheduleDeals} pending`}
           accent="orange"
         />
         <Kpi
@@ -399,7 +402,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* ── Quick lists ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <section className="card teal-top border-t-4 border-provision-orange">
           <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-3">
             Pending Schedule <span className="text-provision-orange">({pendingScheduleDeals})</span>
@@ -414,7 +417,7 @@ export default async function DashboardPage() {
                   className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0"
                 >
                   <div className="truncate">{d.name}</div>
-                  <div className="text-provision-gray-text">{money(d.value)}</div>
+                  <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(d.value)}</div>
                 </div>
               ))}
             {pendingScheduleDeals === 0 && (
@@ -425,7 +428,30 @@ export default async function DashboardPage() {
 
         <section className="card teal-top border-t-4 border-provision-teal">
           <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-3">
-            In Progress <span className="text-provision-teal">({inProgressDeals})</span>
+            Scheduled <span className="text-provision-teal">({scheduledDeals})</span>
+          </h2>
+          <div className="space-y-2">
+            {deals
+              .filter((d) => d.stage === "Project Scheduled")
+              .slice(0, 8)
+              .map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0"
+                >
+                  <div className="truncate">{d.name}</div>
+                  <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(d.value)}</div>
+                </div>
+              ))}
+            {scheduledDeals === 0 && (
+              <div className="text-sm text-provision-gray-text">Nothing scheduled.</div>
+            )}
+          </div>
+        </section>
+
+        <section className="card teal-top border-t-4 border-green-500">
+          <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-3">
+            In Progress <span className="text-green-600">({inProgressDeals})</span>
           </h2>
           <div className="space-y-2">
             {deals
@@ -437,7 +463,7 @@ export default async function DashboardPage() {
                   className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0"
                 >
                   <div className="truncate">{d.name}</div>
-                  <div className="text-provision-gray-text">{money(d.value)}</div>
+                  <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(d.value)}</div>
                 </div>
               ))}
             {inProgressDeals === 0 && (

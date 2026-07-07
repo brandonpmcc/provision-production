@@ -3,6 +3,7 @@ import type { TerritoryId } from "./territories";
 
 export type DealStage =
   | "Project Pending Schedule"
+  | "Project Scheduled"          // Deal has been scheduled in production
   | "Project In Progress"
   | "Project Complete"
   | "RES Pending Payment"

@@ -201,8 +201,9 @@ function parseCityFromAddress(address: string): string {
 
 /** All deals in production-relevant stages (dashboard KPIs) */
 export async function getProductionDeals(): Promise<Deal[]> {
+  // "Project Scheduled" confirmed in Airtable — deals that are booked but not yet started
   const records = await fetchAll(TABLES.deals, {
-    filterByFormula: `OR({Current Stage}='Project Pending Schedule',{Current Stage}='Project In Progress',{Current Stage}='RES Pending Payment')`,
+    filterByFormula: `OR({Current Stage}='Project Pending Schedule',{Current Stage}='Project Scheduled',{Current Stage}='Project In Progress',{Current Stage}='RES Pending Payment')`,
     maxRecords: 200,
   });
 
@@ -223,10 +224,11 @@ export async function getProductionDeals(): Promise<Deal[]> {
   }));
 }
 
-/** Active DJ Jobs (DripJobs work orders with Stage = Scheduled or Pending) */
+/** Active DJ Jobs (DripJobs work orders — Scheduled, Pending, or Accepted) */
 export async function getDJActiveJobs(): Promise<DJActiveJob[]> {
+  // "Accepted" confirmed in Airtable — DripJobs uses this for newly-accepted proposals
   const djRecords = await fetchAll(TABLES.djJobs, {
-    filterByFormula: `OR({Job Stage}="Scheduled",{Job Stage}="Pending")`,
+    filterByFormula: `OR({Job Stage}="Scheduled",{Job Stage}="Pending",{Job Stage}="Accepted")`,
     maxRecords: 500,
   });
 
@@ -780,11 +782,13 @@ export async function getPmStats(): Promise<PmStats[]> {
   const thisWeek = getWeekRange(0);
   const nextWeek = getWeekRange(1);
 
-  // Build map of PM record ID → (name, email)
+  // Build map of PM record ID → (name, email) — confirmed from live Airtable People table
   const pmInfo = new Map<string, { name: string; email: string }>();
-  pmInfo.set("recIWuHhrhcJvOCIM", { name: "Nico Lawler", email: "nico@provisionpaints.com" });
+  pmInfo.set("recIWuHhrhcJvOCIM", { name: "Nico Lawler",     email: "nico@provisionpaints.com" });
   pmInfo.set("recsAsvt9rVtOdN7w", { name: "Tyler Grodivant", email: "tyler@provisionpaints.com" });
-  pmInfo.set("recAliPlaceholder0001", { name: "Ali", email: "ali@provisionpaints.com" });
+  pmInfo.set("recAliPlaceholder0001", { name: "Ali Ubeda Jr", email: "ali@provisionpaints.com" }); // TODO: confirm real People record ID
+  pmInfo.set("recBDt9RI3r4k4H7e", { name: "Colin Colby",     email: "colin@provisionpaints.com" }); // Left company but still has active jobs
+  pmInfo.set("reco9oLBCchHcTW1u", { name: "Jacob Wright",    email: "jacob@provisionpaints.com" });
 
   // Group jobs by PM
   const jobsByPm = new Map<string, PipelineJob[]>();
