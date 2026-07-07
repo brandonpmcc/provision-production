@@ -132,7 +132,7 @@ export function roleFor(email: string | undefined | null):
   | "unknown" {
   if (!email) return "unknown";
   const e = email.toLowerCase();
-  if (e === "miriam@provisionpaints.com") return "coordinator";
+  if (e === "mirian@provisionpaints.com") return "coordinator";
   if (e === "jacob@provisionpaints.com" || e === "brandon@provisionpaints.com") return "manager";
   if (
     e === "nico@provisionpaints.com"  ||

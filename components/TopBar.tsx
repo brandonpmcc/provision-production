@@ -10,7 +10,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 function roleFor(email?: string | null): string {
   if (!email) return "pm";
-  if (["miriam@provisionpaints.com", "jacob@provisionpaints.com"].includes(email)) return "coordinator";
+  if (["mirian@provisionpaints.com", "jacob@provisionpaints.com"].includes(email)) return "coordinator";
   return "pm";
 }
 

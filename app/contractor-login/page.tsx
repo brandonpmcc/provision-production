@@ -106,10 +106,10 @@ export default function ContractorLoginPage() {
         <p className="text-xs text-provision-gray-text mt-6">
           Contact Miriam at{" "}
           <a
-            href="mailto:miriam@provisionpaints.com"
+            href="mailto:mirian@provisionpaints.com"
             className="text-provision-orange hover:text-provision-orange-dark"
           >
-            miriam@provisionpaints.com
+            mirian@provisionpaints.com
           </a>
           {" "}for login issues.
         </p>

@@ -26,7 +26,7 @@ export default async function ContractorDocumentsPage() {
         <AlertCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
         <div className="text-sm text-blue-900">
           <p className="font-medium mb-1">To submit documents:</p>
-          <p>Email all documents to <a href="mailto:miriam@provisionpaints.com" className="font-semibold underline">miriam@provisionpaints.com</a> with your crew name.</p>
+          <p>Email all documents to <a href="mailto:mirian@provisionpaints.com" className="font-semibold underline">mirian@provisionpaints.com</a> with your crew name.</p>
         </div>
       </div>
 
@@ -56,7 +56,7 @@ export default async function ContractorDocumentsPage() {
           <div>
             <p className="font-semibold text-provision-charcoal-dark text-sm mb-1">Submit Your Documents</p>
             <p className="text-xs text-provision-gray-text mb-3">Send as email attachments to Miriam with your crew name in the subject line.</p>
-            <a href="mailto:miriam@provisionpaints.com?subject=Crew%20Documentation" 
+            <a href="mailto:mirian@provisionpaints.com?subject=Crew%20Documentation" 
                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-provision-orange text-white text-xs font-semibold hover:bg-provision-orange-dark transition">
               <Mail className="w-3.5 h-3.5" /> Email Miriam
             </a>

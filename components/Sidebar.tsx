@@ -70,7 +70,7 @@ export function Sidebar() {
 
   // Full nav for coordinators, managers, and the owner
   const isCoordinator =
-    email === "miriam@provisionpaints.com" ||
+    email === "mirian@provisionpaints.com" ||
     email === "jacob@provisionpaints.com"  ||
     email === "brandon@provisionpaints.com";
   const nav = isCoordinator ? NAV_ALL : NAV_PM;
