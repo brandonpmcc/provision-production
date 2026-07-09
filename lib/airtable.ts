@@ -763,100 +763,135 @@ function getWeekRange(weeksFromNow: number): { start: string; end: string } {
   };
 }
 
+// ─── Deal stage → ProductionStage mapping ────────────────────────────────────
+const DEAL_STAGE_MAP: Record<string, ProductionStage> = {
+  "Project Pending Schedule": "Pending Schedule",
+  "Project Scheduled":        "Scheduled",
+  "Project In Progress":      "In Progress",
+  "Project Complete":         "Completed",
+  "RES Pending Payment":      "Pending Payment",
+  "Touch Up Needed":          "Final Walkthrough",
+  "Canceled Jobs":            "Completed",
+  "Projects On Hold":         "Pending Schedule",
+};
+
 /**
- * Get all ACTIVE pipeline jobs - merges DJActiveJobs with Production records.
- * Filters OUT: Completed, Cancelled, Archived, Final Walkthrough (if has payment/completed)
- * Includes: Pending Schedule, Needs Confirmation, Scheduled, Materials Needed,
- *           Ready to Start, In Progress, Final Walkthrough, Pending Payment
+ * Get all ACTIVE pipeline jobs.
+ *
+ * Source of truth: Airtable Deal "Current Stage"
+ *
+ * Strategy:
+ *  1. Fetch all Deals in any production stage (Pending Schedule through Pending Payment)
+ *  2. Also fetch active DJ Jobs (Scheduled/Pending/Accepted) for enrichment data
+ *  3. Merge: Deals drive the stage, DJ Jobs provide customer name / address / hours / budget
+ *  4. Cross-reference Production records for crew/dates if they exist
+ *
+ * This ensures jobs appear in the correct pipeline column regardless of whether
+ * the linked DripJobs work order is still "active" in DripJobs.
  */
 export async function getActivePipelineJobs(): Promise<PipelineJob[]> {
-  const [djJobs, prodJobs] = await Promise.all([getDJActiveJobs(), getProductionJobs()]);
+  // 1. Fetch all active production Deals from Airtable
+  const productionDealStages = [
+    "Project Pending Schedule",
+    "Project Scheduled",
+    "Project In Progress",
+    "RES Pending Payment",
+    "Touch Up Needed",
+    "Projects On Hold",
+  ];
+  const stageFormula = `OR(${productionDealStages.map(s => `{Current Stage}='${s}'`).join(",")})`;
 
-  // Index production jobs by dealId for quick lookup
-  const prodJobByDealId = new Map<string, ProductionJob>();
+  const [dealRecords, djJobs, prodJobs] = await Promise.all([
+    fetchAll(TABLES.deals, {
+      filterByFormula: stageFormula,
+      fields: [
+        "Deal Name", "Current Stage", "Deal Address", "Deal City", "Deal State", "Deal Zip",
+        "Project Type", "Value: Deal", "Budgeted Hours", "PM", "Contact", "DJ Jobs",
+      ],
+      maxRecords: 500,
+    }).catch(() => []),
+    getDJActiveJobs(),    // enrichment: address / phone / budget / hours
+    getProductionJobs(),  // enrichment: crew / dates / stage overrides
+  ]);
+
+  // Index DJ Jobs by their Deal link for fast lookup
+  const djByDealId = new Map<string, DJActiveJob>();
+  for (const dj of djJobs) {
+    if (dj.dealId) djByDealId.set(dj.dealId, dj);
+  }
+
+  // Index Production records by Deal ID
+  const prodByDealId = new Map<string, ProductionJob>();
   for (const pj of prodJobs) {
-    if (pj.dealId) {
-      prodJobByDealId.set(pj.dealId, pj);
-    }
+    if (pj.dealId) prodByDealId.set(pj.dealId, pj);
   }
 
   const result: PipelineJob[] = [];
 
-  // Process each DJ active job
-  for (const dj of djJobs) {
-    const prod = dj.dealId ? prodJobByDealId.get(dj.dealId) : null;
+  for (const r of dealRecords) {
+    const dealId    = r.id;
+    const dealStage = pickName(r.fields["Current Stage"]) ?? "";
+    const prodStage = DEAL_STAGE_MAP[dealStage];
 
-    // ── Infer production stage — priority: Production record > Deal stage > DJ stage ──
-    // The Deal's "Current Stage" in Airtable is the source of truth for where the
-    // job sits in production (e.g. "Project In Progress", "Project Scheduled").
-    let inferredStage: ProductionStage = "Pending Schedule";
-    if (!prod) {
-      // Map Airtable Deal "Current Stage" → ProductionStage
-      const DEAL_STAGE_MAP: Record<string, ProductionStage> = {
-        "Project Pending Schedule": "Pending Schedule",
-        "Project Scheduled":        "Scheduled",
-        "Project In Progress":      "In Progress",
-        "Project Complete":         "Completed",
-        "RES Pending Payment":      "Pending Payment",
-        "Touch Up Needed":          "Final Walkthrough",
-        "Canceled Jobs":            "Completed",
-        "Projects On Hold":         "Pending Schedule",
-      };
+    if (!prodStage || prodStage === "Completed") continue;
 
-      if (dj.dealStage && DEAL_STAGE_MAP[dj.dealStage]) {
-        // ✅ Use the Deal's Current Stage — most accurate source
-        inferredStage = DEAL_STAGE_MAP[dj.dealStage];
-      } else if (dj.djStage === "Scheduled") {
-        // Fallback: DJ "Scheduled" without a Deal stage
-        inferredStage = "Scheduled";
-      } else if (dj.djStage === "Pending" || dj.djStage === "Accepted") {
-        inferredStage = "Pending Schedule";
-      }
-    }
+    // Look up enrichment sources
+    const dj   = djByDealId.get(dealId) ?? null;
+    const prod = prodByDealId.get(dealId) ?? null;
 
-    // Build pipeline job
+    // PM — prefer DJ Job PM (has full name from DripJobs), fall back to Deal PM record
+    const pmName = dj?.pmName ?? null;
+    const pmId   = pmName ? pmRecordIdByName(pmName) : pickFirstLink(r.fields["PM"]);
+
+    // Address — prefer DJ Job address (from DripJobs), fall back to Deal address
+    const dealAddress = pickString(r.fields["Deal Address"]) ?? "";
+    const address     = dj?.address || dealAddress;
+    const zip         = dj?.zip || pickString(r.fields["Deal Zip"]) || parseZipFromAddress(dealAddress);
+    const city        = dj?.city || pickString(r.fields["Deal City"]) || "";
+    const state       = dj?.state || pickString(r.fields["Deal State"]) || "";
+
     const job: PipelineJob = {
-      id: prod?.id || dj.id,
-      djJobId: dj.id,
-      dealId: dj.dealId,
+      id:      prod?.id || dj?.id || dealId,
+      djJobId: dj?.id ?? dealId,
+      dealId,
       isActivated: !!prod,
-      name: dj.customer,
-      address: dj.address,
-      zip: dj.zip,
-      city: dj.city,
-      state: dj.state,
-      projectType: dj.projectType,
-      value: dj.revenue,
-      estimatedHours:      dj.estLaborHours,
-      estimatedLaborCost:  dj.estLaborCost,
-      estimatedMaterials:  dj.estMaterials,
-      pmName: dj.pmName,
-      pmId:   dj.pmId,
-      // Contact info enriched from Contacts table via DripJobs Customer ID
-      customerPhone:       dj.customerPhone,
-      customerEmail:       dj.customerEmail,
-      customerContactName: dj.customerContactName,
-      // Use Production record stage if it exists, otherwise infer from DripJobs
-      productionStage: (prod?.stage ?? inferredStage) as ProductionStage,
-      crew: prod?.crew ?? null,
-      crew2: prod?.crew2 ?? null,
-      startDate: prod?.startDate ?? null,
-      endDate: prod?.endDate ?? null,
-      customerConfirmedStart: prod?.customerConfirmedStart ?? false,
-      crewConfirmed: prod?.crewConfirmed ?? false,
-      colorStatus: prod?.colorStatus ?? null,
-      materialStatus: prod?.materialStatus ?? null,
-      specialMaterialsWarning: prod?.specialMaterialsWarning ?? null,
-      siteWalkComplete: prod?.siteWalkComplete ?? false,
-      companyCamUrl: prod?.companyCamUrl ?? null,
-      notes: prod?.notes ?? null,
-      scoreAvg: prod?.scoreAvg ?? null,
-    };
 
-    // Filter: skip "Completed" production jobs
-    if (job.productionStage === "Completed") continue;
-    // Filter: skip DJ jobs that are in completed stage (if no production record)
-    if (!prod && dj.djStage === "Completed") continue;
+      name:        pickString(r.fields["Deal Name"]) || dj?.customer || "(no name)",
+      address,
+      zip,
+      city,
+      state,
+      projectType: dj?.projectType || pickName(r.fields["Project Type"]),
+      value:       dj?.revenue ?? pickNumber(r.fields["Value: Deal"]),
+
+      estimatedHours:     dj?.estLaborHours ?? pickNumber(r.fields["Budgeted Hours"]),
+      estimatedLaborCost: dj?.estLaborCost ?? null,
+      estimatedMaterials: dj?.estMaterials ?? null,
+
+      pmName,
+      pmId,
+
+      customerPhone:       dj?.customerPhone ?? null,
+      customerEmail:       dj?.customerEmail ?? null,
+      customerContactName: dj?.customerContactName ?? null,
+
+      // Stage: Production record wins > Deal stage
+      productionStage: (prod?.stage ?? prodStage) as ProductionStage,
+
+      crew:                   prod?.crew ?? null,
+      crew2:                  prod?.crew2 ?? null,
+      startDate:              prod?.startDate ?? null,
+      endDate:                prod?.endDate ?? null,
+      customerConfirmedStart: prod?.customerConfirmedStart ?? false,
+      crewConfirmed:          prod?.crewConfirmed ?? false,
+      colorStatus:            prod?.colorStatus ?? null,
+      materialStatus:         prod?.materialStatus ?? null,
+      specialMaterialsWarning: prod?.specialMaterialsWarning ?? null,
+      siteWalkComplete:       prod?.siteWalkComplete ?? false,
+      companyCamUrl:          prod?.companyCamUrl ?? null,
+      notes:                  prod?.notes ?? null,
+      scoreAvg:               prod?.scoreAvg ?? null,
+    };
 
     result.push(job);
   }
