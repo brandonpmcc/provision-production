@@ -66,9 +66,36 @@ interface Props {
 }
 
 export function PipelineBoard({ jobs, crews, role }: Props) {
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId]   = useState<string | null>(null);
+  // Track local stage overrides — key: job.id, value: overridden ProductionStage
+  const [stageOverrides, setStageOverrides] = useState<Record<string, ProductionStage>>({});
+  const [movingJobId, setMovingJobId]       = useState<string | null>(null);
 
-  const selectedJob = selectedJobId ? jobs.find((j) => j.id === selectedJobId) ?? null : null;
+  // Merge overrides into the job list
+  const displayJobs = jobs.map((j) =>
+    stageOverrides[j.id] ? { ...j, productionStage: stageOverrides[j.id] } : j
+  );
+
+  const selectedJob = selectedJobId ? displayJobs.find((j) => j.id === selectedJobId) ?? null : null;
+
+  async function moveStage(job: PipelineJob, newStage: ProductionStage) {
+    if (!job.dealId) return;
+    setMovingJobId(job.id);
+    // Optimistic update immediately
+    setStageOverrides((prev) => ({ ...prev, [job.id]: newStage }));
+    try {
+      await fetch("/api/production/move-stage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId: job.dealId, productionStage: newStage }),
+      });
+    } catch {
+      // Revert on error
+      setStageOverrides((prev) => { const n = { ...prev }; delete n[job.id]; return n; });
+    } finally {
+      setMovingJobId(null);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -94,7 +121,7 @@ export function PipelineBoard({ jobs, crews, role }: Props) {
       <div className="overflow-x-auto -mx-6 px-6 pb-4">
         <div className="flex gap-3 min-w-max">
           {STAGES.map((stage) => {
-            const stageJobs = jobs.filter((j) => j.productionStage === stage);
+            const stageJobs = displayJobs.filter((j) => j.productionStage === stage);
             const stageValue = stageJobs.reduce((sum, j) => sum + (j.value || 0), 0);
             const stageHours = stageJobs.reduce((sum, j) => sum + (j.estimatedHours || 0), 0);
 
@@ -231,6 +258,30 @@ export function PipelineBoard({ jobs, crews, role }: Props) {
                             <ScoreDot score={j.scoreAvg} />
                           </div>
                         </div>
+
+                        {/* Move to stage — only for coordinators/managers, only if has dealId */}
+                        {role !== "pm" && j.dealId && (
+                          <div className="mt-2 pt-1.5 border-t border-provision-gray-mid">
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (e.target.value) moveStage(j, e.target.value as ProductionStage);
+                                e.target.value = "";
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              disabled={movingJobId === j.id}
+                              className="w-full text-[10px] text-provision-gray-text bg-provision-gray border border-provision-gray-mid rounded px-1.5 py-1 cursor-pointer hover:border-provision-orange focus:border-provision-orange outline-none transition disabled:opacity-50"
+                            >
+                              <option value="" disabled>
+                                {movingJobId === j.id ? "Moving…" : "▸ Move to stage…"}
+                              </option>
+                              {STAGES.filter(s => s !== j.productionStage && s !== "Completed").map(s => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </button>
                     );
                   })}
