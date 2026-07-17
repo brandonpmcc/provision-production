@@ -88,22 +88,22 @@ export function Sidebar() {
       {/* ── Teal accent top bar — matches website's teal accent ─── */}
       <div className="h-1 bg-provision-teal flex-shrink-0" />
 
-      {/* ── Brand header ────────────────────────────────────────── */}
-      <div className="px-4 pt-4 pb-3.5 border-b border-white/[0.07]">
+      {/* ── Brand header with Huey ──────────────────────────────── */}
+      <div className="px-4 pt-3 pb-3 border-b border-white/[0.07] relative overflow-hidden">
         <div className="flex items-center gap-2.5">
-          {/* Logo icon with dark bg */}
-          <div className="w-10 h-10 rounded-lg bg-provision-navy flex items-center justify-center flex-shrink-0 overflow-hidden">
+          {/* Huey mascot icon */}
+          <div className="w-11 h-11 flex-shrink-0 relative">
             <Image
-              src="/pvp-icon.svg"
-              alt="Pro-Vision"
-              width={34}
-              height={34}
-              className="object-contain"
+              src="/huey-mascot.png"
+              alt="Huey — Pro-Vision Painting"
+              width={44}
+              height={44}
+              className="object-contain drop-shadow-md"
               unoptimized
             />
           </div>
           <div className="min-w-0">
-            <div className="font-display font-black text-[15px] leading-tight text-white uppercase tracking-wide">
+            <div className="font-display font-black text-[14px] leading-tight text-white uppercase tracking-wide">
               Pro-Vision
             </div>
             <div className="text-[10px] text-provision-teal leading-tight uppercase tracking-widest font-semibold">
@@ -154,6 +154,18 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* ── Huey cheerleader ────────────────────────────────────── */}
+      <div className="flex justify-center pt-2 pb-1 opacity-60 hover:opacity-90 transition-opacity">
+        <Image
+          src="/huey-mascot.png"
+          alt=""
+          width={48}
+          height={54}
+          className="object-contain"
+          unoptimized
+        />
+      </div>
 
       {/* ── User footer ─────────────────────────────────────────── */}
       <div className="px-3 py-3 border-t border-white/[0.07]">

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import type { ProductionJob } from "@/lib/types";
 import {
   MapPin, Calendar, Clock, CheckCircle2, AlertCircle,
-  Loader2, HardHat, Phone, Flag, ChevronDown, ChevronUp,
+  Loader2, Phone, Flag, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -219,11 +220,19 @@ export function CrewPortalClient({
 
   return (
     <div className="min-h-screen bg-provision-navy">
-      {/* Header */}
-      <div className="bg-provision-charcoal border-b border-white/10 px-5 py-4">
+      {/* Header with Huey */}
+      <div className="border-b border-white/10 px-5 py-3" style={{ background: "linear-gradient(135deg, #131E29 0%, #1e2d3d 100%)" }}>
         <div className="max-w-lg mx-auto flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-provision-orange flex items-center justify-center flex-shrink-0">
-            <HardHat className="w-5 h-5 text-white" />
+          {/* Huey mascot */}
+          <div className="w-12 h-12 flex-shrink-0">
+            <Image
+              src="/huey-mascot.png"
+              alt="Huey"
+              width={48}
+              height={54}
+              className="object-contain drop-shadow-md"
+              unoptimized
+            />
           </div>
           <div>
             <div className="font-display font-black text-white text-lg uppercase tracking-wide leading-tight">
@@ -262,8 +271,9 @@ export function CrewPortalClient({
         {/* Active jobs */}
         {activeJobs.length === 0 ? (
           <div className="bg-provision-charcoal rounded-2xl border border-white/10 p-8 text-center">
-            <HardHat className="w-10 h-10 text-white/20 mx-auto mb-3" />
-            <div className="text-white/60 text-sm">No active jobs right now. Check back soon!</div>
+            <Image src="/huey-mascot.png" alt="Huey" width={80} height={90} className="mx-auto mb-3 opacity-60" unoptimized />
+            <div className="text-white/60 text-sm">No active jobs right now.</div>
+            <div className="text-white/30 text-xs mt-1">Huey&apos;s taking a breather — check back soon!</div>
           </div>
         ) : (
           <div className="space-y-3">

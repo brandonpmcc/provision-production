@@ -33,14 +33,17 @@ export default function ContractorLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-provision-gray p-6">
-      <div className="bg-white rounded-xl shadow-card-hover p-8 max-w-sm w-full text-center">
-        {/* Logo */}
-        <div className="w-14 h-14 rounded-xl bg-provision-orange flex items-center justify-center font-bold text-white text-2xl mx-auto mb-4">
-          P
-        </div>
-        <h1 className="text-xl font-semibold text-provision-charcoal-dark">
-          ProVision Crew Portal
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: "linear-gradient(135deg, #0a9aae 0%, #05C3DE 50%, #04afc9 100%)" }}>
+      {/* Wave */}
+      <svg className="absolute bottom-0 left-0 w-64 opacity-20" viewBox="0 0 320 200" fill="white" preserveAspectRatio="none">
+        <path d="M0,200 L0,80 Q40,20 80,60 Q120,100 160,50 Q200,0 240,40 Q280,80 320,30 L320,200 Z" />
+      </svg>
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center relative z-10">
+        {/* Huey */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/huey-mascot.png" alt="Huey" className="w-20 h-22 object-contain mx-auto mb-3 drop-shadow-md" />
+        <h1 className="font-display font-black text-2xl text-provision-navy uppercase tracking-tight">
+          Crew Portal
         </h1>
         <p className="text-sm text-provision-gray-text mt-1 mb-8">
           Sign in with your crew email and PIN

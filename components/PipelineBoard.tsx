@@ -286,8 +286,10 @@ export function PipelineBoard({ jobs, crews, role }: Props) {
                     );
                   })}
                   {stageJobs.length === 0 && (
-                    <div className="text-xs text-provision-gray-text italic py-2 text-center">
-                      empty
+                    <div className="py-4 text-center opacity-30 hover:opacity-50 transition-opacity">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/huey-mascot.png" alt="" className="w-8 h-9 mx-auto mb-1 object-contain" />
+                      <div className="text-[10px] text-provision-gray-text">empty</div>
                     </div>
                   )}
                 </div>
