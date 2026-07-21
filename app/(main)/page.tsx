@@ -170,14 +170,13 @@ export default async function DashboardPage() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview, pipelineJobs, allPipelineJobs, people] = await Promise.all([
+  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview, pipelineJobs, people] = await Promise.all([
     getProductionDeals().catch(() => []),
     getProductionJobs().catch(() => []),
     getCrews().catch(() => []),
     getMonthlyGoal(year, month).catch(() => null),
     getMonthlyGoals(year).catch(() => []),
     getCompletedJobsNeedingReview().catch(() => []),
-    getActivePipelineJobs().catch(() => []),
     getActivePipelineJobs().catch(() => []),
     getPeople().catch(() => []),
   ]);
@@ -215,10 +214,6 @@ export default async function DashboardPage() {
     return getTerritoryByZip(job.zip) || getTerritoryByAddress(job.address) || TERRITORIES.unknown;
   }
 
-  const pendingScheduleJobs = allPipelineJobs.filter(
-    (j) => j.productionStage === "Pending Schedule"
-  );
-
   const { PM_NAME_TO_RECORD_ID } = await import("@/lib/auth");
   const pms = people
     .filter((p) => p.role === "PM" || Object.values(PM_NAME_TO_RECORD_ID).includes(p.id))
@@ -231,9 +226,9 @@ export default async function DashboardPage() {
   const enrichedJobs = pendingScheduleJobs.map((job) => {
     const territory = getJobTerritory(job);
     const { readiness, missingItems, blockingItems } = determineSchedulingReadiness(job);
-    const pmSuggestions = recommendPMsForTerritory(job, allPipelineJobs, Object.values(TERRITORIES));
+    const pmSuggestions = recommendPMsForTerritory(job, pipelineJobs, Object.values(TERRITORIES));
     const topPmSuggestion = pmSuggestions[0] ?? null;
-    const prediction = predictStartDate(job, allPipelineJobs, topPmSuggestion?.pmName ?? null);
+    const prediction = predictStartDate(job, pipelineJobs, topPmSuggestion?.pmName ?? null);
 
     return { job, territory, readiness, missingItems, blockingItems, topPmSuggestion, pmSuggestions, prediction };
   });
