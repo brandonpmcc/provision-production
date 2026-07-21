@@ -425,6 +425,30 @@ export function JobEditPanel({ job, crews, allJobs, onClose }: Props) {
                 <span className="text-provision-charcoal-dark">{job.pmName}</span>
               </div>
             )}
+            {/* Customer contact info */}
+            {job.customerPhone && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-provision-gray-text text-xs shrink-0">📞</span>
+                <a href={`tel:${job.customerPhone}`} className="text-provision-teal font-medium hover:underline">
+                  {job.customerPhone}
+                </a>
+              </div>
+            )}
+            {job.customerEmail && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-provision-gray-text text-xs shrink-0">✉</span>
+                <a href={`mailto:${job.customerEmail}`} className="text-provision-teal hover:underline truncate">
+                  {job.customerEmail}
+                </a>
+              </div>
+            )}
+            {/* Budget breakdown */}
+            {(job.estimatedLaborCost || job.estimatedMaterials) && (
+              <div className="flex items-center gap-4 text-xs text-provision-gray-text pt-1 border-t border-provision-gray-mid mt-1">
+                {job.estimatedLaborCost && <span>Labor: <strong className="text-provision-charcoal">{money(job.estimatedLaborCost)}</strong></span>}
+                {job.estimatedMaterials && <span>Materials: <strong className="text-provision-charcoal">{money(job.estimatedMaterials)}</strong></span>}
+              </div>
+            )}
           </section>
 
           {/* Pipeline Stage */}

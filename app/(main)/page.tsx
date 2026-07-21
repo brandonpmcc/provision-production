@@ -4,6 +4,7 @@ import { authOptions, roleFor } from "@/lib/auth";
 import {
   getProductionDeals,
   getProductionJobs,
+  getActivePipelineJobs,
   getCrews,
   getMonthlyGoal,
   getMonthlyGoals,
@@ -160,41 +161,32 @@ export default async function DashboardPage() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview] = await Promise.all([
+  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview, pipelineJobs] = await Promise.all([
     getProductionDeals().catch(() => []),
     getProductionJobs().catch(() => []),
     getCrews().catch(() => []),
     getMonthlyGoal(year, month).catch(() => null),
     getMonthlyGoals(year).catch(() => []),
     getCompletedJobsNeedingReview().catch(() => []),
+    getActivePipelineJobs().catch(() => []),
   ]);
 
   const invoiceFlagged = invoiceReview.filter(j => j.needsReview);
 
-  const totalPipelineValue    = deals.reduce((sum, d) => sum + (d.value || 0), 0);
-  const inProgressDeals       = deals.filter((d) => d.stage === "Project In Progress").length;
-  const pendingScheduleDeals  = deals.filter((d) => d.stage === "Project Pending Schedule").length;
-  const scheduledDeals        = deals.filter((d) => d.stage === "Project Scheduled").length;
-  const pendingPaymentDeals   = deals.filter((d) => d.stage === "RES Pending Payment").length;
+  // Live pipeline stats from getActivePipelineJobs (Deal Current Stage as source of truth)
+  const pendingScheduleJobs = pipelineJobs.filter(j => j.productionStage === "Pending Schedule");
+  const scheduledPipeJobs   = pipelineJobs.filter(j => j.productionStage === "Scheduled");
+  const inProgressPipeJobs  = pipelineJobs.filter(j => j.productionStage === "In Progress");
+  const pendingPayPipeJobs  = pipelineJobs.filter(j => j.productionStage === "Pending Payment");
 
-  // Weekly Started Production = jobs whose start date falls in the current week
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
-  weekStart.setHours(0, 0, 0, 0);
-  const weekEnd   = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
-  const weeklyStartedJobs = jobs.filter((j) => {
-    if (!j.startDate) return false;
-    const d = new Date(j.startDate + "T00:00:00");
-    return d >= weekStart && d <= weekEnd;
-  });
-  const weeklyStartedRevenue = weeklyStartedJobs.reduce((s, j) => s + (j.dealId ? 0 : 0), 0);
-  // Fall back to deal value for weekly started (join through production job's dealId via deals map)
-  const dealValueById = new Map(deals.map(d => [d.id, d.value ?? 0]));
-  const weeklyStartedValue = weeklyStartedJobs.reduce(
-    (s, j) => s + (j.dealId ? (dealValueById.get(j.dealId) ?? 0) : 0),
-    0
-  );
+  const pendingScheduleDeals = pendingScheduleJobs.length;
+  const scheduledDeals       = scheduledPipeJobs.length;
+  const inProgressDeals      = inProgressPipeJobs.length;
+  const pendingPaymentDeals  = pendingPayPipeJobs.length;
+
+  const inProgressValue  = inProgressPipeJobs.reduce((s, j) => s + (j.value ?? 0), 0);
+  const scheduledValue   = scheduledPipeJobs.reduce((s, j) => s + (j.value ?? 0), 0);
+  const totalActiveValue = pipelineJobs.reduce((s, j) => s + (j.value ?? 0), 0);
 
   const weeklyTarget = monthGoal?.productionGoal
     ? Math.round(monthGoal.productionGoal / 4.33)
@@ -365,34 +357,34 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* ── KPI cards ─────────────────────────────────────────────────── */}
+      {/* ── KPI cards — real pipeline data ────────────────────────────── */}
       <div className="grid grid-cols-4 gap-4">
         <Kpi
-          icon={Briefcase}
-          label="Weekly Started"
-          value={weeklyStartedJobs.length > 0 ? money(weeklyStartedValue) : `${weeklyStartedJobs.length} jobs`}
-          sublabel={`${weeklyStartedJobs.length} job${weeklyStartedJobs.length !== 1 ? "s" : ""} started this week`}
+          icon={DollarSign}
+          label="In Progress"
+          value={money(inProgressValue)}
+          sublabel={`${inProgressDeals} active job${inProgressDeals !== 1 ? "s" : ""} running now`}
           accent="orange"
         />
         <Kpi
           icon={TrendingUp}
-          label="Monthly goal"
+          label="Monthly Goal"
           value={money(monthGoal?.productionGoal)}
-          sublabel={weeklyTarget ? `~${money(weeklyTarget)} / week` : "no goal set"}
+          sublabel={weeklyTarget ? `~${money(weeklyTarget)} / week target` : "no goal set"}
           accent="teal"
         />
         <Kpi
-          icon={DollarSign}
-          label="In Progress"
-          value={`${inProgressDeals}`}
-          sublabel={`${scheduledDeals} scheduled · ${pendingScheduleDeals} pending`}
+          icon={Briefcase}
+          label="Scheduled"
+          value={money(scheduledValue)}
+          sublabel={`${scheduledDeals} job${scheduledDeals !== 1 ? "s" : ""} booked · ${pendingScheduleDeals} pending`}
           accent="orange"
         />
         <Kpi
           icon={Users}
-          label="Active crews"
-          value={`${crews.length}`}
-          sublabel={`${crews.filter((c) => c.inHouse).length} in-house`}
+          label="Pending Payment"
+          value={`${pendingPaymentDeals}`}
+          sublabel={pendingPaymentDeals > 0 ? "jobs awaiting final collection" : "all collected ✓"}
           accent="teal"
         />
       </div>
@@ -437,25 +429,19 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* ── Quick lists ───────────────────────────────────────────────── */}
+      {/* ── Quick lists — from live pipeline ──────────────────────────── */}
       <div className="grid grid-cols-3 gap-4">
         <section className="card teal-top border-t-4 border-provision-orange">
           <h2 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-3">
             Pending Schedule <span className="text-provision-orange">({pendingScheduleDeals})</span>
           </h2>
           <div className="space-y-2">
-            {deals
-              .filter((d) => d.stage === "Project Pending Schedule")
-              .slice(0, 8)
-              .map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0"
-                >
-                  <div className="truncate">{d.name}</div>
-                  <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(d.value)}</div>
-                </div>
-              ))}
+            {pendingScheduleJobs.slice(0, 8).map((j) => (
+              <div key={j.id} className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0">
+                <div className="truncate">{j.name}</div>
+                <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(j.value)}</div>
+              </div>
+            ))}
             {pendingScheduleDeals === 0 && (
               <div className="text-sm text-provision-gray-text">Nothing pending.</div>
             )}
@@ -467,18 +453,15 @@ export default async function DashboardPage() {
             Scheduled <span className="text-provision-teal">({scheduledDeals})</span>
           </h2>
           <div className="space-y-2">
-            {deals
-              .filter((d) => d.stage === "Project Scheduled")
-              .slice(0, 8)
-              .map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0"
-                >
-                  <div className="truncate">{d.name}</div>
-                  <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(d.value)}</div>
+            {scheduledPipeJobs.slice(0, 8).map((j) => (
+              <div key={j.id} className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{j.name}</div>
+                  {j.pmName && <div className="text-[10px] text-provision-gray-muted truncate">{j.pmName}</div>}
                 </div>
-              ))}
+                <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(j.value)}</div>
+              </div>
+            ))}
             {scheduledDeals === 0 && (
               <div className="text-sm text-provision-gray-text">Nothing scheduled.</div>
             )}
@@ -490,18 +473,15 @@ export default async function DashboardPage() {
             In Progress <span className="text-green-600">({inProgressDeals})</span>
           </h2>
           <div className="space-y-2">
-            {deals
-              .filter((d) => d.stage === "Project In Progress")
-              .slice(0, 8)
-              .map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0"
-                >
-                  <div className="truncate">{d.name}</div>
-                  <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(d.value)}</div>
+            {inProgressPipeJobs.slice(0, 8).map((j) => (
+              <div key={j.id} className="flex items-center justify-between text-sm py-1 border-b border-provision-gray-mid last:border-0">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{j.name}</div>
+                  {j.pmName && <div className="text-[10px] text-provision-gray-muted truncate">{j.pmName}</div>}
                 </div>
-              ))}
+                <div className="text-provision-gray-text flex-shrink-0 ml-2">{money(j.value)}</div>
+              </div>
+            ))}
             {inProgressDeals === 0 && (
               <div className="text-sm text-provision-gray-text">Nothing in progress.</div>
             )}
