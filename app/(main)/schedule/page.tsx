@@ -127,11 +127,51 @@ export default async function SchedulePage({
       )}
 
       {tab === "calendar" && (
-        <ScheduleBoard
-          jobs={jobs}
-          crewColors={crewColors}
-          weeklyTarget={weeklyTarget}
-        />
+        <>
+          {jobs.filter(j => j.startDate).length === 0 ? (
+            /* No Production records with dates yet — show helpful state */
+            <div className="space-y-4">
+              <div className="card text-center py-10">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/huey-mascot.png" alt="Huey" className="w-20 h-22 object-contain mx-auto mb-3 opacity-70" />
+                <div className="font-display font-black text-provision-navy uppercase text-lg">Calendar is Ready</div>
+                <p className="text-provision-gray-text text-sm mt-1 max-w-sm mx-auto">
+                  Jobs with scheduled dates will appear here. Use <strong>Pending Queue</strong> → Schedule a job to add start and end dates.
+                </p>
+                <Link href="/pending-schedule" className="btn-primary mt-4 inline-flex">
+                  Go to Pending Queue →
+                </Link>
+              </div>
+              {/* Show what IS in progress as a reference */}
+              {allJobs.filter(j => j.productionStage === "In Progress" || j.productionStage === "Scheduled").length > 0 && (
+                <div className="card">
+                  <div className="section-label mb-3">Active jobs needing dates</div>
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                    {allJobs
+                      .filter(j => j.productionStage === "In Progress" || j.productionStage === "Scheduled")
+                      .map(j => (
+                        <div key={j.id} className="flex items-center justify-between text-sm py-1.5 border-b border-provision-gray-mid last:border-0">
+                          <div>
+                            <span className="font-medium text-provision-navy">{j.name}</span>
+                            {j.pmName && <span className="text-provision-gray-muted ml-2 text-xs">{j.pmName}</span>}
+                          </div>
+                          <span className={`pill text-[10px] ${j.productionStage === "In Progress" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                            {j.productionStage}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <ScheduleBoard
+              jobs={jobs}
+              crewColors={crewColors}
+              weeklyTarget={weeklyTarget}
+            />
+          )}
+        </>
       )}
     </div>
   );
