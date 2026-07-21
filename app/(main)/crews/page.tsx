@@ -20,7 +20,7 @@ export default async function CrewRegistryPage({
 }: {
   searchParams: { tab?: string };
 }) {
-  const tab = searchParams?.tab === "credentials" ? "credentials" : "registry";
+  const tab = searchParams?.tab === "credentials" ? "credentials" : searchParams?.tab === "active" ? "active" : "registry";
 
   const [crews, allJobs] = await Promise.all([
     getCrews().catch(() => []),
@@ -59,6 +59,7 @@ export default async function CrewRegistryPage({
       <div className="flex gap-1 bg-provision-gray rounded-xl p-1 w-fit">
         {[
           { id: "registry", label: "Registry" },
+          { id: "active", label: "Active Jobs" },
           { id: "credentials", label: "Credentials & Links" },
         ].map(({ id, label }) => (
           <Link
@@ -123,6 +124,63 @@ export default async function CrewRegistryPage({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ACTIVE JOBS TAB */}
+      {tab === "active" && (
+        <div className="space-y-4">
+          {crewEntries.map(([, login]) => {
+            const crew = crews.find(c => c.name === login.crewName);
+            const crewJobs = allJobs.filter(j => j.crew === login.crewName && j.productionStage !== "Complete");
+
+            if (crewJobs.length === 0) return null;
+
+            const color = crew?.color ? (COLOR_MAP[crew.color] ?? "#9CA3AF") : "#9CA3AF";
+
+            return (
+              <div key={login.crewName} className="card">
+                {/* Crew header */}
+                <div className="flex items-center gap-3 mb-4 pb-3 border-b border-provision-gray-mid">
+                  <div
+                    className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center"
+                    style={{ backgroundColor: color + "22", border: `2px solid ${color}` }}
+                  >
+                    <HardHat className="w-4 h-4" style={{ color }} />
+                  </div>
+                  <div>
+                    <div className="font-display font-black text-provision-navy text-sm uppercase tracking-tight">
+                      {login.crewName}
+                    </div>
+                    <div className="text-xs text-provision-gray-text mt-0.5">
+                      {crewJobs.length} active job{crewJobs.length !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Jobs list */}
+                <div className="space-y-2">
+                  {crewJobs.map((job) => (
+                    <div key={job.id} className="flex items-center justify-between p-2.5 rounded-lg bg-provision-gray/50">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-provision-navy text-sm truncate">{job.name}</div>
+                        <div className="text-xs text-provision-gray-text mt-0.5 truncate">{job.address}</div>
+                      </div>
+                      <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold ${
+                          job.productionStage === "In Progress" ? "bg-green-100 text-green-700" :
+                          job.productionStage === "Ready to Start" ? "bg-blue-100 text-blue-700" :
+                          "bg-yellow-100 text-yellow-700"
+                        }`}>
+                          {job.productionStage}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }).filter(Boolean)}
         </div>
       )}
 

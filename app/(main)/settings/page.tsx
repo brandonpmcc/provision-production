@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { getProductionJobs, getDJActiveJobs } from "@/lib/airtable";
+import { getProductionJobs, getDJActiveJobs, getPeople } from "@/lib/airtable";
 import type { ProductionStage } from "@/lib/types";
 import {
   CheckCircle2, XCircle, Package, Bell, AlertTriangle, Settings2,
-  ExternalLink, Clock,
+  ExternalLink, Clock, Users,
 } from "lucide-react";
 
 const ACTIVE_STAGES: ProductionStage[] = [
@@ -62,12 +62,13 @@ export default async function SettingsPage({
 }: {
   searchParams?: { section?: string };
 }) {
-  const section = searchParams?.section ?? "integrations";
+  const section = searchParams?.section ?? "users";
 
-  // Load materials data
-  const [prodJobs, djJobs] = await Promise.all([
+  // Load materials data and team members
+  const [prodJobs, djJobs, people] = await Promise.all([
     getProductionJobs().catch(() => []),
     getDJActiveJobs().catch(() => []),
+    getPeople().catch(() => []),
   ]);
 
   const activeJobs = prodJobs.filter(j => ACTIVE_STAGES.includes(j.stage as ProductionStage));
@@ -89,7 +90,8 @@ export default async function SettingsPage({
   };
 
   const tabs = [
-    { id: "integrations", label: "Integrations", icon: <Settings2 className="w-4 h-4" /> },
+    { id: "users",        label: "Users",         icon: <Users className="w-4 h-4" /> },
+    { id: "integrations", label: "Integrations",  icon: <Settings2 className="w-4 h-4" /> },
     { id: "materials",    label: "Materials",     icon: <Package className="w-4 h-4" />, badge: urgent.length || undefined },
     { id: "reminders",    label: "Reminders",     icon: <Bell className="w-4 h-4" /> },
   ];
@@ -124,6 +126,54 @@ export default async function SettingsPage({
           </Link>
         ))}
       </div>
+
+      {/* ── Users ────────────────────────────────────────────────────── */}
+      {section === "users" && (
+        <div className="space-y-5">
+          {/* Team members list */}
+          <div className="space-y-3">
+            <h3 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide">Team Members</h3>
+            {people.length === 0 ? (
+              <div className="card text-center py-8 text-provision-gray-text text-sm">
+                <Users className="w-8 h-8 mx-auto mb-2 text-provision-gray-muted" />
+                No team members found
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {people.map((person) => (
+                  <div key={person.id} className="card p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-provision-orange flex items-center justify-center flex-shrink-0 text-white font-bold text-sm">
+                        {person.name ? person.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "?"}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-provision-navy text-sm">{person.name || "Unnamed"}</div>
+                        <div className="text-xs text-provision-gray-text truncate">{person.email || "no email"}</div>
+                      </div>
+                    </div>
+                    {person.role && (
+                      <span className="ml-2 flex-shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-provision-teal/10 text-provision-teal uppercase tracking-wide">
+                        {person.role}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Subcontractor access card */}
+          <div className="card border-l-4 border-provision-orange">
+            <h3 className="font-display font-black text-sm text-provision-navy uppercase tracking-wide mb-2">Subcontractor Access</h3>
+            <p className="text-sm text-provision-gray-text mb-3">
+              Manage crew portal access and credentials in the Crews section.
+            </p>
+            <Link href="/crews?tab=credentials" className="text-xs font-bold text-provision-orange hover:underline">
+              Go to Crew Management →
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* ── Integrations ────────────────────────────────────────────── */}
       {section === "integrations" && (

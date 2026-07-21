@@ -6,16 +6,9 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard,
-  Clock,
   Kanban,
-  CalendarRange,
   Map,
-  BarChart2,
-  Globe,
   Users,
-  Star,
-  Package,
-  Bell,
   Settings,
   HardHat,
   FileWarning,
@@ -28,35 +21,21 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   matchPrefix?: string;
-  group?: string;
 }
 
 const NAV_ALL: NavItem[] = [
-  // Core
-  { href: "/",                 label: "Dashboard",      icon: LayoutDashboard },
-  { href: "/pending-schedule", label: "Pending Queue",  icon: Clock,         matchPrefix: "/pending-schedule", group: "Schedule" },
-  { href: "/pipeline",         label: "Pipeline",       icon: Kanban,        matchPrefix: "/pipeline",         group: "Schedule" },
-  { href: "/schedule",         label: "Calendar",       icon: CalendarRange, matchPrefix: "/schedule",         group: "Schedule" },
-  // Geographic
-  { href: "/map",              label: "Map",            icon: Map,           matchPrefix: "/map",              group: "Jobs" },
-  { href: "/territories",      label: "Territories",    icon: Globe,         matchPrefix: "/territories",      group: "Jobs" },
-  // Team
-  { href: "/team",             label: "Team",           icon: Users,         matchPrefix: "/team",             group: "Team" },
-  { href: "/crews",            label: "Crew Portal",    icon: HardHat,       matchPrefix: "/crews",            group: "Team" },
-  { href: "/capacity",         label: "Capacity",       icon: BarChart2,     matchPrefix: "/capacity",         group: "Team" },
-  // Operations
-  { href: "/invoices",         label: "Invoice Review", icon: FileWarning,   matchPrefix: "/invoices",         group: "Ops" },
-  { href: "/materials",        label: "Materials",      icon: Package,       matchPrefix: "/materials",        group: "Ops" },
-  { href: "/reminders",        label: "Reminders",      icon: Bell,          matchPrefix: "/reminders",        group: "Ops" },
-  { href: "/settings",         label: "Settings",       icon: Settings,      matchPrefix: "/settings" },
+  { href: "/",         label: "Home",      icon: LayoutDashboard },
+  { href: "/jobs",     label: "Jobs",      icon: Kanban,         matchPrefix: "/jobs" },
+  { href: "/map",      label: "Map",       icon: Map,            matchPrefix: "/map" },
+  { href: "/crews",    label: "Crews",     icon: HardHat,        matchPrefix: "/crews" },
+  { href: "/team",     label: "Team",      icon: Users,          matchPrefix: "/team" },
+  { href: "/invoices", label: "Invoices",  icon: FileWarning,    matchPrefix: "/invoices" },
+  { href: "/settings", label: "Settings",  icon: Settings,       matchPrefix: "/settings" },
 ];
 
 const NAV_PM: NavItem[] = [
-  { href: "/",                 label: "Dashboard",      icon: LayoutDashboard },
-  { href: "/pending-schedule", label: "Pending Queue",  icon: Clock,         matchPrefix: "/pending-schedule" },
-  { href: "/pipeline",         label: "Pipeline",       icon: Kanban,        matchPrefix: "/pipeline" },
-  { href: "/schedule",         label: "Calendar",       icon: CalendarRange, matchPrefix: "/schedule" },
-  { href: "/reminders",        label: "Reminders",      icon: Bell,          matchPrefix: "/reminders" },
+  { href: "/",     label: "Home",      icon: LayoutDashboard },
+  { href: "/jobs", label: "Jobs",      icon: Kanban,         matchPrefix: "/jobs" },
 ];
 
 function initials(name?: string | null): string {
@@ -115,20 +94,12 @@ export function Sidebar() {
 
       {/* ── Navigation ──────────────────────────────────────────── */}
       <nav className="flex-1 px-2 py-2 overflow-y-auto">
-        {nav.map((item, i) => {
-          const { href, label, icon: Icon, group } = item;
+        {nav.map((item) => {
+          const { href, label, icon: Icon } = item;
           const active = isActive(item);
-          // Show group label when this item starts a new group
-          const prevGroup = i > 0 ? nav[i - 1].group : undefined;
-          const showGroupLabel = group && group !== prevGroup;
           return (
-            <div key={href}>
-              {showGroupLabel && (
-                <div className="px-3 pt-3 pb-1 text-[9px] font-bold uppercase tracking-widest text-white/20">
-                  {group}
-                </div>
-              )}
             <Link
+              key={href}
               href={href}
               className={`
                 group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-100 mb-0.5
@@ -150,7 +121,6 @@ export function Sidebar() {
               />
               <span className="flex-1 truncate uppercase tracking-wide text-[11px]">{label}</span>
             </Link>
-            </div>
           );
         })}
       </nav>

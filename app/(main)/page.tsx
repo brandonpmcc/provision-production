@@ -9,8 +9,16 @@ import {
   getMonthlyGoal,
   getMonthlyGoals,
   getCompletedJobsNeedingReview,
+  getPmStats,
+  getPeople,
 } from "@/lib/airtable";
-import type { ProductionJob } from "@/lib/types";
+import { TERRITORIES, getTerritoryByZip, getTerritoryByAddress } from "@/lib/territories";
+import {
+  recommendPMsForTerritory,
+  determineSchedulingReadiness,
+  predictStartDate,
+} from "@/lib/recommend";
+import type { ProductionJob, PipelineJob } from "@/lib/types";
 import {
   Briefcase,
   DollarSign,
@@ -22,6 +30,7 @@ import {
   Wrench,
   BarChart2,
 } from "lucide-react";
+import { PendingScheduleClient } from "./pending-schedule/PendingScheduleClient";
 
 function money(n: number | null | undefined) {
   if (n == null) return "—";
@@ -161,7 +170,7 @@ export default async function DashboardPage() {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview, pipelineJobs] = await Promise.all([
+  const [deals, jobs, crews, monthGoal, yearGoals, invoiceReview, pipelineJobs, allPipelineJobs, people] = await Promise.all([
     getProductionDeals().catch(() => []),
     getProductionJobs().catch(() => []),
     getCrews().catch(() => []),
@@ -169,6 +178,8 @@ export default async function DashboardPage() {
     getMonthlyGoals(year).catch(() => []),
     getCompletedJobsNeedingReview().catch(() => []),
     getActivePipelineJobs().catch(() => []),
+    getActivePipelineJobs().catch(() => []),
+    getPeople().catch(() => []),
   ]);
 
   const invoiceFlagged = invoiceReview.filter(j => j.needsReview);
@@ -198,6 +209,41 @@ export default async function DashboardPage() {
   const goalPct    = monthGoal?.productionGoal && monthGoal?.actualProduction
     ? Math.min(100, Math.round((monthGoal.actualProduction / monthGoal.productionGoal) * 100))
     : null;
+
+  // Build Kiwi Pending Queue — enriched jobs for scheduling recommendations
+  function getJobTerritory(job: PipelineJob) {
+    return getTerritoryByZip(job.zip) || getTerritoryByAddress(job.address) || TERRITORIES.unknown;
+  }
+
+  const pendingScheduleJobs = allPipelineJobs.filter(
+    (j) => j.productionStage === "Pending Schedule"
+  );
+
+  const { PM_NAME_TO_RECORD_ID } = await import("@/lib/auth");
+  const pms = people
+    .filter((p) => p.role === "PM" || Object.values(PM_NAME_TO_RECORD_ID).includes(p.id))
+    .map((p) => ({
+      recordId: p.id,
+      name: p.name,
+      email: p.email ?? "",
+    }));
+
+  const enrichedJobs = pendingScheduleJobs.map((job) => {
+    const territory = getJobTerritory(job);
+    const { readiness, missingItems, blockingItems } = determineSchedulingReadiness(job);
+    const pmSuggestions = recommendPMsForTerritory(job, allPipelineJobs, Object.values(TERRITORIES));
+    const topPmSuggestion = pmSuggestions[0] ?? null;
+    const prediction = predictStartDate(job, allPipelineJobs, topPmSuggestion?.pmName ?? null);
+
+    return { job, territory, readiness, missingItems, blockingItems, topPmSuggestion, pmSuggestions, prediction };
+  });
+
+  const readinessCounts = {
+    all:         enrichedJobs.length,
+    ready:       enrichedJobs.filter(e => e.readiness === "ready").length,
+    missingInfo: enrichedJobs.filter(e => e.blockingItems.length > 0).length,
+    needsReview: enrichedJobs.filter(e => e.missingItems.length > 0 && e.blockingItems.length === 0).length,
+  };
 
   return (
     <div className="space-y-6">
@@ -488,6 +534,28 @@ export default async function DashboardPage() {
           </div>
         </section>
       </div>
+
+      {/* ── Kiwi Pending Queue ────────────────────────────────────────── */}
+      {enrichedJobs.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-provision-teal rounded text-white text-xs font-bold flex items-center justify-center">K</div>
+            <h2 className="font-display font-black text-provision-navy uppercase tracking-wide">
+              Kiwi Pending Queue
+            </h2>
+            <span className="text-xs text-provision-gray-text ml-auto">
+              {readinessCounts.ready} ready · {readinessCounts.needsReview} review · {readinessCounts.missingInfo} info
+            </span>
+          </div>
+          <PendingScheduleClient
+            enrichedJobs={enrichedJobs}
+            readinessCounts={readinessCounts}
+            territories={Object.values(TERRITORIES).filter(t => t.active)}
+            crews={crews}
+            pms={pms}
+          />
+        </section>
+      )}
     </div>
   );
 }

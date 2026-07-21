@@ -124,13 +124,19 @@ function JobCard({
 
       {/* Row 2: PM suggestion + start date — THE KEY INFO */}
       <div className="grid grid-cols-2 gap-2">
-        {/* PM suggestion */}
+        {/* PM suggestion — Kiwi Recommends */}
         <div className={`rounded-lg p-2.5 border ${
-          pm ? "bg-provision-orange-light border-provision-orange/20" : "bg-provision-gray border-provision-gray-mid"
+          pm ? "bg-provision-teal-light border-provision-teal/20" : "bg-provision-gray border-provision-gray-mid"
         }`}>
           <div className="flex items-center gap-1 mb-1">
-            <User className="w-3 h-3 text-provision-orange flex-shrink-0" />
-            <span className="text-[10px] font-bold text-provision-orange uppercase tracking-wide">Suggested PM</span>
+            {pm ? (
+              <div className="w-4 h-4 bg-provision-teal rounded text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">K</div>
+            ) : (
+              <User className="w-3 h-3 text-provision-gray-muted flex-shrink-0" />
+            )}
+            <span className={`text-[10px] font-bold uppercase tracking-wide ${pm ? "text-provision-teal" : "text-provision-gray-muted"}`}>
+              {pm ? "Kiwi Recommends" : "No Suggestion"}
+            </span>
           </div>
           {pm ? (
             <div>
@@ -138,17 +144,17 @@ function JobCard({
                 {pm.pmName.split(" ")[0]}
               </div>
               <div className="flex items-center gap-1 mt-0.5">
-                <div className="h-1 flex-1 rounded-full bg-provision-orange/20 overflow-hidden">
+                <div className="h-1 flex-1 rounded-full bg-provision-teal/20 overflow-hidden">
                   <div
-                    className="h-full bg-provision-orange rounded-full"
+                    className="h-full bg-provision-teal rounded-full"
                     style={{ width: `${pm.score}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-bold text-provision-orange">{pm.score}%</span>
+                <span className="text-[10px] font-bold text-provision-teal">{pm.score}%</span>
               </div>
             </div>
           ) : (
-            <div className="text-xs text-provision-gray-muted italic">None assigned</div>
+            <div className="text-xs text-provision-gray-muted italic">No suggestion</div>
           )}
         </div>
 
