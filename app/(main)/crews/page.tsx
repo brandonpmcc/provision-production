@@ -132,7 +132,7 @@ export default async function CrewRegistryPage({
         <div className="space-y-4">
           {crewEntries.map(([, login]) => {
             const crew = crews.find(c => c.name === login.crewName);
-            const crewJobs = allJobs.filter(j => j.crew === login.crewName && j.productionStage !== "Complete");
+            const crewJobs = allJobs.filter(j => j.crew === login.crewName && j.productionStage !== "Completed");
 
             if (crewJobs.length === 0) return null;
 
